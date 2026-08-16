@@ -373,6 +373,83 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('session row right-click opens its menu at the pointer without opening the session', () => {
+    const onOpen = vi.fn()
+    const onRename = vi.fn()
+    const onFork = vi.fn()
+    const onArchive = vi.fn()
+    const node: SessionNode = {
+      id: sid('s1'), title: 'One', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0,
+    }
+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
+      onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
+    const row = screen.getByRole('treeitem')
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 80 })
+
+    // Right-click shows the same row menu without opening the session, placed
+    // at the pointer (Menu bottom spacing is 4px below the anchor point).
+    expect(onOpen).not.toHaveBeenCalled()
+    const menu = screen.getByRole('menu')
+    expect(menu.style.left).toBe('40px')
+    expect(menu.style.top).toBe('84px')
+    expect(screen.getByRole('menuitem', { name: '重命名' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
+    expect(onFork).toHaveBeenCalledWith(node.id)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(onOpen).not.toHaveBeenCalled()
+
+    // Escape closes and clears the pointer so a later right-click re-anchors.
+    fireEvent.contextMenu(row, { clientX: 60, clientY: 120 })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.contextMenu(row, { clientX: 70, clientY: 140 })
+    expect(screen.getByRole('menu').style.left).toBe('70px')
+    expect(screen.getByRole('menu').style.top).toBe('144px')
+  })
+
+  it('workspace row right-click opens its menu at the pointer and dispatches delete', () => {
+    const onDelete = vi.fn()
+    const onToggle = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem
+      group={group} onToggle={onToggle} onCreate={vi.fn()}
+      actions={{ rename: vi.fn(), delete: onDelete }} t={t}
+    />)
+    const row = screen.getByRole('treeitem')
+    fireEvent.contextMenu(row, { clientX: 24, clientY: 56 })
+
+    expect(onToggle).not.toHaveBeenCalled()
+    expect(screen.getByRole('menu').style.left).toBe('24px')
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+    expect(onDelete).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('blank New Session rows and the ungrouped bucket open no menu on right-click', () => {
+    const blank: SessionNode = {
+      id: sid('s-blank'), title: 'ignored', blank: true, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0,
+    }
+    render(<SessionNodeItem node={blank} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 10, clientY: 10 })
+    expect(screen.queryByRole('menu')).toBeNull()
+    cleanup()
+
+    const group: GroupNode = {
+      key: '', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 10, clientY: 10 })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
 
   it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
     vi.useFakeTimers()
