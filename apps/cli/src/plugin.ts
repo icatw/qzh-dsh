@@ -11,7 +11,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
   DEFAULT_PROFILE_BUNDLES,
@@ -112,6 +112,29 @@ function anchorPathSpec(argument: string, cwd: string): string {
 }
 
 /**
+ * Recognize a pnpm ≥11 blocked-build-scripts failure from the placeholder it
+ * left in the profile's `pnpm-workspace.yaml`, and return the exact edit that
+ * fixes it. pnpm blocks dependency build scripts by default (`strictDepBuilds`),
+ * fails the install with `ERR_PNPM_IGNORED_BUILDS`, and writes
+ * `allowBuilds: { <name>: set this to true or false }` before exiting — only a
+ * literal boolean allows the script, so the placeholder alone means the next
+ * run fails the same way. pnpm's own hint (`pnpm approve-builds`) needs a TTY
+ * that a scripted profile install does not have.
+ * @param pnpmWorkspaceYaml - the profile's `pnpm-workspace.yaml` content.
+ * @param profileDir - the profile directory owning `pnpm-workspace.yaml`.
+ * @returns the actionable message, or undefined when no placeholder exists.
+ */
+export function blockedBuildsHint(pnpmWorkspaceYaml: string, profileDir: string): string | undefined {
+  const entries = [...pnpmWorkspaceYaml.matchAll(/^\s*([^:\s][^:\n]*?):\s*(?:["'])?set this to true or false(?:["'])?\s*$/gm)]
+    .map(match => match[1])
+    .filter((name): name is string => name !== undefined && name.length > 0)
+  if (entries.length === 0) return undefined
+  const lines = entries.map(name => `  ${name}: true`).join('\n')
+  return `${NAME}: pnpm blocked the build scripts of ${entries.join(', ')} until allowed — set each to true `
+    + `under allowBuilds in ${join(profileDir, 'pnpm-workspace.yaml')}, then re-run:\n${lines}\n`
+}
+
+/**
  * Run one `dsh plugin` invocation: init if needed, forward to pnpm, reconcile.
  * @param profile - the profile name.
  * @param args - pnpm arguments with relative path specs anchored to the invoking directory.
@@ -144,10 +167,16 @@ export function runPlugin(profile: string, args: readonly string[]): number {
     reconcilePlugins(before, dir)
   } else {
     // pnpm's own diagnostics name pnpm-workspace.yaml without saying WHICH
-    // one; the profile owns it, and the commonest failure here is pnpm ≥10
-    // blocking a git dependency's prepare (build) script until allowlisted.
+    // one; the profile owns it, and the commonest failure here is pnpm ≥11
+    // blocking a dependency's build scripts until allowlisted.
     process.stderr.write(`${NAME}: pnpm failed in profile directory ${dir}\n`)
-    if (args.some(argument => /^git\+|^github:|\.git(?:#|$)/.test(argument))) {
+    const workspaceYaml = existsSync(join(dir, 'pnpm-workspace.yaml'))
+      ? readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+      : ''
+    const hint = blockedBuildsHint(workspaceYaml, dir)
+    if (hint !== undefined) {
+      process.stderr.write(hint)
+    } else if (args.some(argument => /^git\+|^github:|\.git(?:#|$)/.test(argument))) {
       process.stderr.write(
         `${NAME}: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — `
         + `add the exact key pnpm printed above under allowBuilds in ${join(dir, 'pnpm-workspace.yaml')}, then re-run\n`,

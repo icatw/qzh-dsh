@@ -48,7 +48,7 @@ dsh plugin --profile tui remove turtle-ui
 dsh --profile tui
 ```
 
-Git-hosted plugins that ship sources build during install through their `prepare` script, which pnpm ≥10 blocks until the consumer allows it: the first `add` fails with pnpm's `allowBuilds` hint (and a dsh pointer at the profile's `pnpm-workspace.yaml`); copy the printed key there and re-run. Installing a built tarball or a local checkout needs no allowance.
+pnpm ≥11 blocks dependency build scripts by default (`strictDepBuilds`), so the first `add` of a plugin whose dependency chain includes native modules fails with `ERR_PNPM_IGNORED_BUILDS`: pnpm records the blocked packages in the profile's `pnpm-workspace.yaml` under `allowBuilds` with a placeholder value, and dsh prints the exact edit to make on the failed install — set each entry to `true` there, then re-run. The same allowance covers git-hosted plugins that build through their `prepare` script. Installing a built tarball or a local checkout needs no allowance.
 
 ## Web alias
 
