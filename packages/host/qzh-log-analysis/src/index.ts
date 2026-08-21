@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { realpath, readFile, stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
@@ -130,13 +130,17 @@ function parseSearchOutput(output: string, maxResults: number): QzhCodeMatch[] {
   const matches: QzhCodeMatch[] = []
   for (const line of output.split(/\r?\n/)) {
     if (line.length === 0) continue
-    const separator = line.indexOf(':')
+    // `git grep <rev>` prefixes every match with `<rev>:path:line:text`;
+    // the rev is a bare commit hash with no colon, so dropping the first
+    // segment leaves the familiar `path:line:text` form.
+    const body = line.slice(line.indexOf(':') + 1)
+    const separator = body.indexOf(':')
     if (separator <= 0) continue
-    const lineEnd = line.indexOf(':', separator + 1)
+    const lineEnd = body.indexOf(':', separator + 1)
     if (lineEnd <= separator) continue
-    const number = Number(line.slice(separator + 1, lineEnd))
+    const number = Number(body.slice(separator + 1, lineEnd))
     if (!Number.isInteger(number) || number < 1) continue
-    matches.push({ path: line.slice(0, separator), line: number, text: line.slice(lineEnd + 1).slice(0, 1_000) })
+    matches.push({ path: body.slice(0, separator), line: number, text: body.slice(lineEnd + 1).slice(0, 1_000) })
     if (matches.length >= maxResults) break
   }
   return matches
@@ -181,7 +185,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       const promptDispose = systemPrompt.section({
         name: 'qzh:analysis-methodology',
         order: -20,
-        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_list_evidence、qzh_search_code、qzh_read_code 读取代码与证据；不得修改代码、执行 Shell 或猜测未提供的事实。先调用 qzh_list_evidence 查看证据包内完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定的日志布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验案例上下文，对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
+        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_list_evidence、qzh_search_code、qzh_read_code 读取代码与证据；不得修改代码、执行 Shell 或猜测未提供的事实。代码检索限定在当前案例绑定的 QZH 版本（productVersion 对应的 git tag/commit），所有代码引用必须标注该版本的实际 commit。先调用 qzh_list_evidence 查看证据包内完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定的日志布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验案例上下文，对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
       })
       const currentCaseDispose = tools.register(defineTool({
         name: 'qzh_get_current_case',
@@ -198,7 +202,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       }))
       const searchDispose = tools.register(defineTool({
         name: 'qzh_search_code',
-        description: '在固定 QZH Git mirror 中进行只读固定字符串搜索。case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。返回命中的仓库、commit、路径、行号和代码行。',
+        description: '在当前案例绑定的 QZH 版本（productVersion 对应的 git tag/commit）中做只读固定字符串搜索。case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。返回命中的仓库、commit、路径、行号和代码行。',
         parameters: {
           case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
           repository: { type: 'string', required: true, enum: ['server'], description: '当前 QZH 服务端仓库。' },
@@ -233,7 +237,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       }))
       const readDispose = tools.register(defineTool({
         name: 'qzh_read_code',
-        description: '从固定 QZH Git mirror 读取有限行号范围的源码；case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。只读且返回实际 commit。',
+        description: '从当前案例绑定的 QZH 版本（productVersion 对应的 git tag/commit）读取有限行号范围的源码；case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。只读且返回实际 commit。',
         parameters: {
           case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
           repository: { type: 'string', required: true, enum: ['server'], description: '当前 QZH 服务端仓库。' },
@@ -379,14 +383,17 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    */
   @Remote('searchCode')
   async searchCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, query: string, signal?: AbortSignal): Promise<QzhCodeSearchResult> {
-    this.requireCase(sessionId, id)
+    const record = this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const root = await this.repositoryRoot(repo)
     const text = query.trim()
     if (text.length === 0 || text.length > 512) throw new Error('QZH code query must contain 1-512 characters')
-    const rgPath = await import('@vscode/ripgrep').then(module => module.rgPath)
+    const commit = await this.resolveRef(root, record, signal)
+    const git = await this.ctx.subprocess.resolveExecutable('git', undefined, signal)
     const handle = this.ctx.subprocess.spawn({
-      argv: [rgPath, '--no-config', '--fixed-strings', '--line-number', '--no-heading', '--color', 'never', text, '.'],
+      // Search the committed tree at the case's resolved version, not the
+      // checkout: the mirror is shared read-only across sessions and tools.
+      argv: [git, '-C', root, 'grep', '-n', '--fixed-strings', '--no-color', '--', text, commit],
       cwd: root,
       stdio: { stdin: 'ignore', stdout: { maxBytes: 2 * 1024 * 1024 }, stderr: { maxBytes: STDERR_MAX_BYTES } },
       graceMs: COMMAND_GRACE_MS,
@@ -399,7 +406,6 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     if (outcome.signal !== null || (outcome.exitCode !== 0 && outcome.exitCode !== 1)) {
       throw new Error(`QZH source search failed: ${stderr.text.trim() || `exit ${String(outcome.exitCode)}`}`)
     }
-    const commit = await this.currentCommit(root, signal)
     return { repository: repo, commit, query: text, matches: parseSearchOutput(stdout.text, this.maxSearchResults) }
   }
 
@@ -415,7 +421,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    */
   @Remote('readCode')
   async readCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, path: string, startLine?: number, endLine?: number, signal?: AbortSignal): Promise<QzhCodeReadResult> {
-    this.requireCase(sessionId, id)
+    const record = this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const safePath = ensureRelativePath(path)
     const requestedStart = startLine ?? 1
@@ -423,16 +429,29 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     const requestedEnd = endLine ?? first + 119
     const last = Number.isInteger(requestedEnd) && requestedEnd >= first ? Math.min(requestedEnd, first + 499) : first + 119
     const root = await this.repositoryRoot(repo)
-    const filePath = resolve(root, safePath)
-    const canonical = await realpath(filePath)
-    if (!this.isWithin(root, canonical)) throw new Error('QZH source path resolves outside the configured mirror')
-    const info = await stat(canonical)
-    if (!info.isFile()) throw new Error('QZH source path is not a regular file')
-    const bytes = await readFile(canonical)
-    if (bytes.byteLength > this.maxReadBytes) throw new Error(`QZH source file exceeds ${String(this.maxReadBytes)} bytes`)
-    const lines = bytes.toString('utf8').split(/\r?\n/)
+    const commit = await this.resolveRef(root, record, signal)
+    const git = await this.ctx.subprocess.resolveExecutable('git', undefined, signal)
+    // Read the committed blob at the case's resolved version. `git show
+    // <commit>:<path>` resolves inside the committed tree, so a path with
+    // `..` or an absolute form cannot escape the repository.
+    const handle = this.ctx.subprocess.spawn({
+      argv: [git, '-C', root, 'show', `${commit}:${safePath}`],
+      cwd: root,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: this.maxReadBytes + 1 }, stderr: { maxBytes: STDERR_MAX_BYTES } },
+      graceMs: COMMAND_GRACE_MS,
+      signal,
+    } satisfies SubprocessSpawnSpec)
+    const outcome = await handle.done
+    const stdout = handle.collected.stdout?.readFrom(0)
+    const stderr = handle.collected.stderr?.readFrom(0)
+    if (stdout === undefined || stderr === undefined) throw new Error('QZH source read did not return collected output')
+    if (outcome.signal !== null || outcome.exitCode !== 0) {
+      throw new Error(`QZH source read failed: ${stderr.text.trim() || `exit ${String(outcome.exitCode)}`}`)
+    }
+    if (Buffer.byteLength(stdout.text, 'utf8') > this.maxReadBytes) throw new Error(`QZH source file exceeds ${String(this.maxReadBytes)} bytes`)
+    const lines = stdout.text.split(/\r?\n/)
     const text = lines.slice(first - 1, last).join('\n')
-    return { repository: repo, commit: await this.currentCommit(root, signal), path: safePath, startLine: first, endLine: Math.min(last, lines.length), text }
+    return { repository: repo, commit, path: safePath, startLine: first, endLine: Math.min(last, lines.length), text }
   }
 
   /** Lazily open the durable case store and restore every stored case once.
@@ -610,8 +629,46 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       root = await realpath(this.mirrorRoot)
       await stat(resolve(root, '.git'))
     }
-    if (!this.isWithin(this.mirrorRoot, root)) throw new Error('QZH repository resolves outside the configured mirror root')
+    // Compare against the canonical form of the mirror root: realpath resolves
+    // symlinks (e.g. /var -> /private/var on macOS), and comparing a canonical
+    // child against the un-canonicalized root would reject valid setups.
+    const mirrorRootCanonical = await realpath(this.mirrorRoot)
+    if (!this.isWithin(mirrorRootCanonical, root)) throw new Error('QZH repository resolves outside the configured mirror root')
     return root
+  }
+
+  /** Resolve the git revision a case's code lookups must use.
+   *
+   * A case's `productVersion` names a git tag (or any ref) in the mirror;
+   * the commit is pinned per case so concurrent sessions analyzing different
+   * versions never interfere. Without a version the checkout HEAD is used,
+   * matching the pre-versioning behavior.
+   * @param root - repository root holding the `.git` directory.
+   * @param record - the case whose version resolves to a commit.
+   * @param signal - optional cancellation signal.
+   * @returns the fully-qualified commit hash.
+   */
+  private async resolveRef(root: string, record: CaseRecord, signal?: AbortSignal): Promise<string> {
+    const version = record.productVersion?.trim()
+    if (version === undefined || version.length === 0) return this.currentCommit(root, signal)
+    const git = await this.ctx.subprocess.resolveExecutable('git', undefined, signal)
+    const handle = this.ctx.subprocess.spawn({
+      argv: [git, '-C', root, 'rev-parse', '--verify', '--end-of-options', `${version}^{commit}`],
+      cwd: root,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 128 }, stderr: { maxBytes: STDERR_MAX_BYTES } },
+      graceMs: COMMAND_GRACE_MS,
+      signal,
+    } satisfies SubprocessSpawnSpec)
+    const outcome = await handle.done
+    const stdout = handle.collected.stdout?.readFrom(0)
+    const stderr = handle.collected.stderr?.readFrom(0)
+    if (outcome.exitCode !== 0 || outcome.signal !== null || stdout === undefined) {
+      const detail = stderr?.text.trim() ?? ''
+      throw new Error(`QZH 版本 ${version} 在 mirror 中不存在${detail === '' ? '' : `：${detail}`}`)
+    }
+    const commit = stdout.text.trim()
+    if (!/^[0-9a-f]{7,64}$/i.test(commit)) throw new Error(`QZH 版本 ${version} 未能解析为有效 commit`)
+    return commit
   }
 
   private async currentCommit(root: string, signal?: AbortSignal): Promise<string> {

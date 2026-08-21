@@ -26,7 +26,7 @@ export function QzhConsentPanel({
       </div>
       <div className={css.formGrid}>
         <label>客户标识（可选）<input value={customerLabel} onChange={event => { onCustomerLabel(event.currentTarget.value) }} /></label>
-        <label>QZH 版本（可选）<input value={productVersion} onChange={event => { onProductVersion(event.currentTarget.value) }} /></label>
+        <label>QZH 版本（可选）<input value={productVersion} placeholder="如 3.10.3-release-20260821 或 commit hash" onChange={event => { onProductVersion(event.currentTarget.value) }} /></label>
         <label className={css.formWide}>现场现象（可选）<textarea value={failureDescription} onChange={event => { onFailureDescription(event.currentTarget.value) }} rows={3} /></label>
       </div>
       <label className={css.consentLabel}>

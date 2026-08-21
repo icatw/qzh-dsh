@@ -1,16 +1,42 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { Context } from '@deepseek-ai/cordis'
 import { Storage } from '@deepseek-ai/dsh-storage'
 import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import QzhLogAnalysisService from '../src/index.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { QzhCaseView } from '../src/types.ts'
 
 const contexts: Context[] = []
 const backends: JsonStorageBackend[] = []
+const mirrors: string[] = []
+
+/** Build a tiny git mirror with tags v1.0.0 / v2.0.0 and a HEAD commit. */
+function makeGitMirror(): { root: string; v2Commit: string } {
+  const root = mkdtempSync(join(tmpdir(), 'qzh-mirror-'))
+  mirrors.push(root)
+  const run = (args: string[]): void => { execFileSync('git', ['-C', root, ...args], { stdio: 'ignore' }) }
+  run(['init', '-q'])
+  run(['config', 'user.email', 'test@example.com'])
+  run(['config', 'user.name', 'test'])
+  mkdirSync(join(root, 'src'))
+  writeFileSync(join(root, 'src/service.go'), '// v1\nconst TOKEN_V1 = true\n')
+  run(['add', '.'])
+  run(['commit', '-qm', 'v1'])
+  run(['tag', 'v1.0.0'])
+  writeFileSync(join(root, 'src/service.go'), '// v2\nconst TOKEN_V2 = true\n')
+  run(['commit', '-qam', 'v2'])
+  run(['tag', 'v2.0.0'])
+  // HEAD carries a third token so the no-version fallback is distinguishable.
+  writeFileSync(join(root, 'src/service.go'), '// head\nconst TOKEN_HEAD = true\n')
+  run(['commit', '-qam', 'head'])
+  const v2Commit = execFileSync('git', ['-C', root, 'rev-parse', 'v2.0.0'], { encoding: 'utf8' }).trim()
+  return { root, v2Commit }
+}
 
 afterEach(async () => {
   await Promise.all(backends.splice(0).map(backend => backend.close()))
@@ -158,5 +184,53 @@ describe('QzhLogAnalysisService', () => {
       currentCaseForTool: (id: SessionId) => QzhCaseView
     }
     expect(toolApi.currentCaseForTool(sessionId).id).toBe(created.id)
+  })
+
+  it('searches and reads the git tree pinned by the case product version', async () => {
+    const { root, v2Commit } = makeGitMirror()
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const service = new QzhLogAnalysisService(ctx, { mirrorRoot: root })
+    const sessionId = 'session-versioned' as SessionId
+    const created = await service.createCase(sessionId, { productVersion: 'v2.0.0' })
+
+    const search = await service.searchCode(sessionId, created.id, 'server', 'TOKEN_V2', undefined)
+    expect(search.commit).toBe(v2Commit)
+    expect(search.matches.map(match => match.path)).toEqual(['src/service.go'])
+    expect(search.matches[0]?.text).toContain('TOKEN_V2')
+
+    const read = await service.readCode(sessionId, created.id, 'server', 'src/service.go', 1, 5)
+    expect(read.commit).toBe(v2Commit)
+    expect(read.text).toContain('TOKEN_V2')
+    expect(read.text).not.toContain('TOKEN_V1')
+
+    // A search term that only exists in the older tag must not leak through.
+    const oldOnly = await service.searchCode(sessionId, created.id, 'server', 'TOKEN_V1', undefined)
+    expect(oldOnly.matches).toEqual([])
+  })
+
+  it('falls back to the checkout HEAD when no product version is set', async () => {
+    const { root } = makeGitMirror()
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const service = new QzhLogAnalysisService(ctx, { mirrorRoot: root })
+    const sessionId = 'session-head' as SessionId
+    const created = await service.createCase(sessionId, {})
+    const search = await service.searchCode(sessionId, created.id, 'server', 'TOKEN_HEAD', undefined)
+    expect(search.matches.map(match => match.path)).toEqual(['src/service.go'])
+    expect(search.matches[0]?.text).toContain('TOKEN_HEAD')
+  })
+
+  it('rejects a product version the mirror does not know', async () => {
+    const { root } = makeGitMirror()
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const service = new QzhLogAnalysisService(ctx, { mirrorRoot: root })
+    const sessionId = 'session-badversion' as SessionId
+    const created = await service.createCase(sessionId, { productVersion: 'v9.9.9' })
+    await expect(service.searchCode(sessionId, created.id, 'server', 'TOKEN_V2', undefined)).rejects.toThrow('不存在')
   })
 })
