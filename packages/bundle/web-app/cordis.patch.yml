@@ -94,6 +94,14 @@
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
+    # QZH case API and read-only source mirror. Keep the capability absent in
+    # an unconfigured checkout instead of falling back to the DSH cwd.
+    - id: qzh-log-analysis
+      name: '@deepseek-ai/dsh-host-qzh-log-analysis'
+      disabled: !!js "(process.env.QZH_MIRROR_ROOT ?? '') === ''"
+      config:
+        mirrorRoot: !!js process.env.QZH_MIRROR_ROOT
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -232,6 +240,11 @@
 
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
+
+    # QZH incident-analysis workbench. The browser owns local evidence import
+    # and parsing; the Host owns DSH Agent analysis and read-only code tools.
+    - id: ui-qzh-log-analysis
+      name: '@deepseek-ai/dsh-client-ui-qzh-log-analysis'
 
     # Background jobs: the session-header list over the jobsBySession mirror.
     - id: ui-jobs
