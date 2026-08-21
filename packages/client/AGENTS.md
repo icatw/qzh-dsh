@@ -87,6 +87,10 @@ Run the narrowest rung that covers what you touched; escalate only when the chan
 
 If `test:gui` is red on code you did not touch, neither silently fix nor ignore it: note it in your handoff so it lands in the next PR window's sweep.
 
+### Rebuilding client bundles
+
+A client bundle is compiled from `src/client/index.ts` when tsdown runs without `DSH_BUILD_FACE` (the per-package `bundle` script, a bare `tsdown` in the package, and `pnpm run dev:web`'s watcher), but from `lib/types/client/index.js` — the client-face `tsc` emit — under `tsdown --env.DSH_BUILD_FACE client` (`npm run build:lib:client`). If the client aggregate `tsc` is red, that emit is stale: the client-face tsdown then silently rebuilds every bundle from the last successful compile and reverts recent client changes. For client iteration use `pnpm --filter <pkg> bundle` or `pnpm run dev:web`; run the full client face only when the aggregate typechecks. See the process note `2026-08-22-client-bundle-stale-tsc-entry`.
+
 ## New plugin package checklist
 
 Bringing up a new `packages/client/<name>` plugin package (ui-workspace is a complete example; ui-sidebar/ui-user-questions are minimal skeletons):
