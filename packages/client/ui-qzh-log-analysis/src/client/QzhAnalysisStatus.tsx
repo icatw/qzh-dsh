@@ -1,4 +1,5 @@
 import type { QzhCaseView, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { QzhFeedback } from './QzhFeedback.tsx'
 import css from './QzhLogAnalysisSection.module.css'
 
@@ -24,7 +25,11 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback }: Pr
       </div>
       {!completed && !analyzing && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
       {caseView.analysisError !== undefined && <p className={css.errorText}>{caseView.analysisError}</p>}
-      {caseView.report !== undefined && <pre className={css.report}>{caseView.report}</pre>}
+      {caseView.report !== undefined && (
+        <div className={css.report}>
+          <MarkdownText text={caseView.report} />
+        </div>
+      )}
       {completed && <QzhFeedback feedback={caseView.feedback} onFeedback={onFeedback} />}
     </section>
   )

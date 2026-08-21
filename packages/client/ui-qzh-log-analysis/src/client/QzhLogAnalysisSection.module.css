@@ -67,7 +67,8 @@
 .analysisCard .sectionHeading { border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .analysisCard > .primaryButton { justify-self: start; margin: 14px 18px 18px; }
 .errorText { margin: 0; border-top: 1px solid var(--dsw-alias-border-l1); padding: 12px 18px; color: var(--dsw-alias-state-error-primary); font-size: 12px; overflow-wrap: anywhere; }
-.report { max-height: 320px; margin: 0; overflow: auto; border-top: 1px solid var(--dsw-alias-border-l1); padding: 14px 18px; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Report scroll container; the MarkdownText renderer owns the typography. */
+.report { max-height: 320px; margin: 0; overflow: auto; border-top: 1px solid var(--dsw-alias-border-l1); padding: 14px 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dockCollapsed, .dockExpanded { width: min(100%, 780px); margin: 0 auto; }
 .dockCollapsed { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .dockCollapsed span { min-width: 0; overflow-wrap: anywhere; }

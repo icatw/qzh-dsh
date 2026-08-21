@@ -7,6 +7,7 @@ import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-
 import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import { inject as qzhInject } from '../src/client/index.ts'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
+import { QzhAnalysisStatus } from '../src/client/QzhAnalysisStatus.tsx'
 import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
 import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
 
@@ -98,5 +99,36 @@ describe('QZH blank-session analysis surface', () => {
     const openDetails = vi.fn()
     render(<QzhSessionHeaderAction {...input} openDetails={openDetails} />)
     await waitFor(() => expect(openDetails).toHaveBeenCalled())
+  })
+
+  it('renders the completed analysis report as markdown, not source text', () => {
+    const report = [
+      '# 根因分析',
+      '',
+      '**结论**：配置缺失。',
+      '',
+      '- 第一点',
+      '- 第二点',
+      '',
+      '```bash',
+      'echo hi',
+      '```',
+    ].join('\n')
+    render(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed', createdAt: 1, updatedAt: 1, report,
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    // A heading, inline emphasis, a list, and a fenced code block render as
+    // elements — the report is no longer a raw <pre> of the source text.
+    expect(screen.getByRole('heading', { level: 1, name: '根因分析' })).toBeTruthy()
+    expect(screen.getByText('结论', { selector: 'strong' })).toBeTruthy()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    // CodeBlock tokenizes the body into shiki spans; the <pre> textContent is
+    // the stable verbatim surface.
+    expect(document.querySelector('.md-code-block pre')?.textContent).toContain('echo hi')
   })
 })
