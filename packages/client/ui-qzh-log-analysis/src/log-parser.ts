@@ -37,10 +37,16 @@ export function parseLogTimestamp(line: string): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed
 }
 
-function severityOf(line: string): ParsedLogEvent['severity'] {
+/** Level word at line start, tolerating a leading bracketed tag or prefix. */
+const LEVEL_AT_START = /^(?:\[[^\]]*\]\s*)?(?:ERROR|CRITICAL|EXCEPTION|TRACEBACK|WARN|WARNING)\b/
+
+function severityOf(line: string, hasTimestamp: boolean): ParsedLogEvent['severity'] {
   const upper = line.toUpperCase()
-  if (/\b(ERROR|CRITICAL|EXCEPTION|TRACEBACK)\b/.test(upper)) return 'error'
-  if (/\b(WARN|WARNING)\b/.test(upper)) return 'warn'
+  // A timestamp anchors the level word anywhere in the line; without one the
+  // level must start the line so column headers (e.g. summary.txt's
+  // "service ... warn error ...") are not mistaken for real log events.
+  if (/\b(ERROR|CRITICAL|EXCEPTION|TRACEBACK)\b/.test(upper) && (hasTimestamp || LEVEL_AT_START.test(upper))) return 'error'
+  if (/\b(WARN|WARNING)\b/.test(upper) && (hasTimestamp || LEVEL_AT_START.test(upper))) return 'warn'
   if (/\b(INFO|DEBUG)\b/.test(upper)) return 'info'
   return 'unknown'
 }
@@ -54,7 +60,8 @@ function severityOf(line: string): ParsedLogEvent['severity'] {
 export function parseLogText(file: QzhLogFile, text: string, category: QzhLogCategory): ParsedLogEvent[] {
   return text.split(/\r?\n/).flatMap((line, index) => {
     if (line.trim() === '') return []
-    const severity = severityOf(line)
+    const timestamp = parseLogTimestamp(line)
+    const severity = severityOf(line, timestamp !== undefined)
     if (severity !== 'error' && severity !== 'warn' && file.stream !== 'error') return []
     return [{
       path: file.path,
@@ -62,7 +69,7 @@ export function parseLogText(file: QzhLogFile, text: string, category: QzhLogCat
       stream: file.stream,
       category,
       lineNumber: index + 1,
-      timestamp: parseLogTimestamp(line),
+      timestamp,
       severity,
       message: line.replace(TIMESTAMP, '').replace(/^\s*[-|:]\s*/, '').trim(),
     }]

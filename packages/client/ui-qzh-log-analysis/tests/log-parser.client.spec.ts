@@ -114,4 +114,27 @@ describe('QZH log parser', () => {
     expect(clusters).toHaveLength(2)
     expect(clusters.map(cluster => cluster.category).sort()).toEqual(['server', 'terminal'])
   })
+
+  it('ignores column headers that mention a level word without a timestamp', () => {
+    const [file] = scanQzhLogLayout(['summary.txt'])
+    const header = 'service\tstatus\ttotal\tdebug\tinfo\twarn\terror\tfirst_time\tlast_time\trequest_id_hits'
+    const events = parseLogText(file!, `${header}\n2026-08-21 10:00:00 ERROR boom`, 'server')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ severity: 'error', message: 'ERROR boom' })
+    expect(clusterLogErrors(events)).toMatchObject([{ severity: 'error', count: 1 }])
+  })
+
+  it('keeps untimestamped lines whose level word starts the line', () => {
+    const [file] = scanQzhLogLayout(['runtime/app-runtime.log'])
+    const events = parseLogText(file!, 'ERROR boom\nWARN slow\nINFO ready', 'terminal')
+    expect(events).toHaveLength(2)
+    expect(events.map(event => event.severity)).toEqual(['error', 'warn'])
+  })
+
+  it('recognizes a level word anywhere when a timestamp anchors the line', () => {
+    const [file] = scanQzhLogLayout(['runtime/app-runtime.log'])
+    const events = parseLogText(file!, '2026-08-21 10:00:00 request ERROR boom', 'server')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ severity: 'error' })
+  })
 })
