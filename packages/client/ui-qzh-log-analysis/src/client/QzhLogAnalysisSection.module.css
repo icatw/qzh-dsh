@@ -67,12 +67,15 @@
 .analysisCard .sectionHeading { border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .analysisCard > .primaryButton { justify-self: start; margin: 14px 18px 18px; }
 .errorText { margin: 0; border-top: 1px solid var(--dsw-alias-border-l1); padding: 12px 18px; color: var(--dsw-alias-state-error-primary); font-size: 12px; overflow-wrap: anywhere; }
-/* Report scroll container; the MarkdownText renderer owns the typography. */
-.report { max-height: 320px; margin: 0; overflow: auto; border-top: 1px solid var(--dsw-alias-border-l1); padding: 14px 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+/* Report region: grows with the Markdown content; the details column's own
+   scroll body (DetailsPanel .body) is the single scrollport, so the report
+   must not cap its height here. The MarkdownText renderer owns typography. */
+.report { margin: 0; border-top: 1px solid var(--dsw-alias-border-l1); padding: 14px 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dockCollapsed, .dockExpanded { width: min(100%, 780px); margin: 0 auto; }
 .dockCollapsed { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .dockCollapsed span { min-width: 0; overflow-wrap: anywhere; }
 .dockCollapsed button { flex: none; border: 0; background: transparent; color: var(--dsw-alias-state-business-primary); font-size: 11px; cursor: pointer; }
-.dockExpanded { display: grid; gap: 8px; max-height: min(52vh, 520px); overflow: auto; }
+/* The details column scrolls as a whole; this box only stacks the cards. */
+.dockExpanded { display: grid; gap: 8px; min-width: 0; }
 @media (max-width: 760px) { .surface { padding: 0 12px 20px; } .heroInner { padding: 32px 4px 24px; } .formGrid { grid-template-columns: 1fr; } .formWide { grid-column: auto; } .uploadGrid { grid-template-columns: 1fr; } .reviewHeader, .sectionHeading { gap: 10px; } .evidenceRow, .clusterRow { flex-direction: column; } .evidenceRow > span:last-child { text-align: left; } .evidenceRow > span:first-child { width: 100%; white-space: normal; overflow-wrap: anywhere; } .dockCollapsed { align-items: flex-start; flex-direction: column; padding: 4px 0; } .dockCollapsed button { padding: 0; } }
 @media (max-width: 420px) { .uploadActions { display: grid; grid-template-columns: 1fr; } .primaryButton, .secondaryButton { width: 100%; } .heroCopy h1 { font-size: 30px; } .reviewHeader, .sectionHeading { flex-direction: column; } .reviewBadge, .statePill { align-self: flex-start; } }

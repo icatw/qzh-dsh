@@ -130,5 +130,10 @@ describe('QZH blank-session analysis surface', () => {
     // CodeBlock tokenizes the body into shiki spans; the <pre> textContent is
     // the stable verbatim surface.
     expect(document.querySelector('.md-code-block pre')?.textContent).toContain('echo hi')
+    // The report region grows with the content: the details column owns the
+    // scrollport, so the card must not carry an inline height cap.
+    const reportCard = document.querySelector('[class*="report"]')
+    expect(reportCard).not.toBeNull()
+    expect(reportCard?.getAttribute('style')).toBeNull()
   })
 })
