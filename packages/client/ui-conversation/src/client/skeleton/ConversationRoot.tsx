@@ -170,6 +170,10 @@ export function ConversationRoot({
         <div className={css.composerStack}>
           {qzhComposer}
           {renderSlot('conversation.composer.qzh.dock', {})}
+          {/* The stats strip is composer-owned and preset-agnostic: a QZH
+              session reports the same turn/step/duration/token figures as
+              an ordinary one. Same zone-gated dock as the ordinary branch. */}
+          {zone !== undefined && renderSlot('conversation.composer.dock', zone)}
         </div>
       )
       : (

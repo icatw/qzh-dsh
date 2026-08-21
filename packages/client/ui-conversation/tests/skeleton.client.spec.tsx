@@ -99,6 +99,8 @@ function mount(
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
+    /** The session summary's `agentPreset` — `qzh` selects the read-only composer branch. */
+    agentPreset?: string
   } = {},
 ) {
   const root = sid('root')
@@ -107,6 +109,7 @@ function mount(
     id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
     running: false, blank: options.summaryBlank ?? false, updatedAt: 2,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
+    ...(options.agentPreset === undefined ? {} : { agentPreset: options.agentPreset }),
   }
   const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
@@ -337,6 +340,26 @@ describe('ConversationRoot resident composer', () => {
     expect(seat?.contains(textarea)).toBe(true)
     expect(b.slotCalls).toContain('conversation.session.header.actions')
     expect(b.slotCalls).toContain('conversation.session.header.utilities')
+  })
+
+  it('qzh session renders the read-only composer AND the preset-agnostic stats dock', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, { agentPreset: 'qzh' })
+    // Read-only follow-up composer replaces the input bar (no textarea).
+    expect(b.view.queryByRole('textbox')).toBeNull()
+    expect(b.slotCalls).toContain('conversation.composer.qzh')
+    expect(b.slotCalls).toContain('conversation.composer.qzh.dock')
+    // The stats strip is composer-owned, not preset-owned: a QZH session
+    // reports the same turn/step/duration/token figures as an ordinary one.
+    expect(b.slotCalls).toContain('conversation.composer.dock')
+  })
+
+  it('blank qzh session shows the import hero and skips the stats dock', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      undefined, undefined, { agentPreset: 'qzh', summaryBlank: true },
+    )
+    expect(b.slotCalls).toContain('conversation.hero.empty')
+    expect(b.slotCalls).not.toContain('conversation.composer.dock')
   })
 
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
