@@ -354,7 +354,11 @@
 /* Hero: the composer sits inside the session scroll body; center there so
    the tree seat matches active (sticky footer) without a Root remount. */
 .root[data-phase='hero'] .scrollBody {
+  /* `safe` keeps the hero content reachable when it grows taller than the
+     scrollport: plain `center` pushes the overflow above the scroll origin
+     (top unreachable, clipped), `safe center` falls back to start alignment. */
   justify-content: center;
+  justify-content: safe center;
   overflow-y: auto;
 }
 
