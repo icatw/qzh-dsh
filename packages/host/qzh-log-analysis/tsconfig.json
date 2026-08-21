@@ -14,6 +14,8 @@
     { "path": "../../core/tools" },
     { "path": "../../llm/llm" },
     { "path": "../../typert/protocol" },
+    { "path": "../../storage/storage" },
+    { "path": "../../storage/storage-json" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

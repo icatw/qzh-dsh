@@ -10,6 +10,8 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { KvUnit } from '@deepseek-ai/dsh-storage'
+import type {} from '@deepseek-ai/dsh-storage'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -30,6 +32,8 @@ export interface Config {
   maxReadBytes?: number
   /** Maximum matches returned by one search operation. */
   maxSearchResults?: number
+  /** Storage backend name used for durable cases (defaults to the `json` backend). */
+  storageBackend?: string
 }
 
 type CaseRecord = { -readonly [K in keyof QzhCaseView]: QzhCaseView[K] }
@@ -140,21 +144,26 @@ function parseSearchOutput(output: string, maxResults: number): QzhCodeMatch[] {
 
 /** QZH Host case API and read-only source mirror service. */
 export class QzhLogAnalysisService extends TypertRemoteService {
-  static inject = ['subprocess', 'tools', 'systemPrompt', 'agents']
+  static inject = ['subprocess', 'tools', 'systemPrompt', 'agents', 'storage']
   static Config: z<Config> = z.object({
     mirrorRoot: z.string().required(),
     maxReadBytes: z.natural().default(DEFAULT_MAX_READ_BYTES),
     maxSearchResults: z.natural().default(DEFAULT_MAX_SEARCH_RESULTS),
+    storageBackend: z.string().default('json'),
   })
 
   private readonly cases = new Map<QzhCaseId, CaseRecord>()
   private readonly maxReadBytes: number
   private readonly maxSearchResults: number
   private readonly mirrorRoot: string
+  private readonly storageBackendName: string
   private readonly ownerCtx: Context
   private readonly analysisRuns = new Map<QzhCaseId, Promise<void>>()
   /** Latest submitted case used as implicit context by model-facing tools. */
   private readonly activeCases = new Map<SessionId, QzhCaseId>()
+  /** Single-flight durable case-store open; undefined when persistence is unavailable. */
+  private unitPromise: Promise<KvUnit | undefined> | undefined
+  private persistenceWarned = false
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'qzhLogAnalysis')
@@ -163,6 +172,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.mirrorRoot = resolve(config.mirrorRoot)
     this.maxReadBytes = config.maxReadBytes ?? DEFAULT_MAX_READ_BYTES
     this.maxSearchResults = config.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS
+    this.storageBackendName = config.storageBackend ?? 'json'
     const service = this
     const tools = ctx.get('tools')
     const systemPrompt = ctx.get('systemPrompt')
@@ -246,13 +256,14 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     }, 'qzh-log-analysis:agent-capabilities')
   }
 
-  /** Create an in-memory case record for the current Host process.
+  /** Create an in-memory and durably stored case record.
    * @param sessionId - owning DSH session.
    * @param request - case metadata supplied by the browser.
    * @returns newly created case view.
    */
   @Remote('createCase')
-  createCase(sessionId: SessionId, request: QzhCreateCaseRequest): QzhCaseView {
+  async createCase(sessionId: SessionId, request: QzhCreateCaseRequest): Promise<QzhCaseView> {
+    await this.casesUnit()
     const timestamp = now()
     const id = caseId(`qzh-case-${randomUUID()}`)
     const customerLabel = trimOptional(request.customerLabel, 256)
@@ -270,6 +281,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     }
     this.cases.set(id, record)
     this.activeCases.set(sessionId, id)
+    await this.persistCase(id)
     return { ...record }
   }
 
@@ -280,7 +292,8 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns updated case view.
    */
   @Remote('setEvidence')
-  setEvidence(sessionId: SessionId, id: QzhCaseId, evidence: QzhEvidenceSummary): QzhCaseView {
+  async setEvidence(sessionId: SessionId, id: QzhCaseId, evidence: QzhEvidenceSummary): Promise<QzhCaseView> {
+    await this.casesUnit()
     const record = this.requireCase(sessionId, id)
     if (!evidence.consent.approved || evidence.consent.destination !== EVIDENCE_DESTINATION) {
       throw new Error('QZH evidence consent must approve the internal analysis destination')
@@ -295,6 +308,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     }
     this.cases.set(id, next)
     this.activeCases.set(sessionId, id)
+    await this.persistCase(id)
     return { ...next }
   }
 
@@ -317,6 +331,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     delete next.analysisError
     this.cases.set(id, next)
     this.activeCases.set(sessionId, id)
+    await this.persistCase(id)
     const run = this.runAnalysis(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
     this.analysisRuns.set(id, run)
     return { case: { ...next }, sessionId }
@@ -328,7 +343,8 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns detached case view.
    */
   @Remote('getCase')
-  getCase(sessionId: SessionId, id: QzhCaseId): QzhCaseView {
+  async getCase(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
+    await this.casesUnit()
     return { ...this.requireCase(sessionId, id) }
   }
 
@@ -340,7 +356,8 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns updated case view.
    */
   @Remote('setFeedback')
-  setFeedback(sessionId: SessionId, id: QzhCaseId, kind: QzhFeedbackKind, comment?: string): QzhCaseView {
+  async setFeedback(sessionId: SessionId, id: QzhCaseId, kind: QzhFeedbackKind, comment?: string): Promise<QzhCaseView> {
+    await this.casesUnit()
     const record = this.requireCase(sessionId, id)
     if (kind !== 'like' && kind !== 'dislike') throw new Error('QZH feedback kind must be like or dislike')
     const trimmed = trimOptional(comment, 2_048)
@@ -348,6 +365,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     if (trimmed === undefined) delete next.feedbackComment
     else next.feedbackComment = trimmed
     this.cases.set(id, next)
+    await this.persistCase(id)
     return { ...next }
   }
 
@@ -415,6 +433,65 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     const lines = bytes.toString('utf8').split(/\r?\n/)
     const text = lines.slice(first - 1, last).join('\n')
     return { repository: repo, commit: await this.currentCommit(root, signal), path: safePath, startLine: first, endLine: Math.min(last, lines.length), text }
+  }
+
+  /** Lazily open the durable case store and restore every stored case once.
+   * @returns the opened KV unit, or undefined when storage is unavailable.
+   */
+  private casesUnit(): Promise<KvUnit | undefined> {
+    this.unitPromise ??= (async () => {
+      const storage = this.ownerCtx.get('storage') as { backend: { get(name: string): { kv?: { open(descriptor: {
+        name: string; version: number; tables: readonly string[]; hasGlobal: boolean
+      }): Promise<KvUnit> } } } } | undefined
+      if (storage === undefined) {
+        this.warnPersistence(`案例持久化不可用：storage 服务未挂载，本次按内存案例运行`)
+        return undefined
+      }
+      let unit: KvUnit
+      try {
+        const backend = storage.backend.get(this.storageBackendName)
+        if (backend.kv === undefined) {
+          this.warnPersistence(`案例持久化不可用：后端 ${this.storageBackendName} 无 kv 能力`)
+          return undefined
+        }
+        unit = await backend.kv.open({ name: 'qzh_cases', version: 1, tables: ['cases'], hasGlobal: false })
+      } catch (error: unknown) {
+        this.warnPersistence(`案例持久化不可用：${error instanceof Error ? error.message : String(error)}`)
+        return undefined
+      }
+      try {
+        const snapshot = await unit.loadAll()
+        const records = snapshot.tables['cases'] ?? {}
+        for (const raw of Object.values(records)) {
+          if (typeof raw !== 'object' || raw === null) continue
+          const record = raw as CaseRecord
+          if (typeof record.id !== 'string' || typeof record.sessionId !== 'string') continue
+          this.cases.set(caseId(record.id), record)
+          this.activeCases.set(record.sessionId, record.id)
+        }
+      } catch (error: unknown) {
+        this.warnPersistence(`案例恢复失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+      return unit
+    })()
+    return this.unitPromise
+  }
+
+  /** Persist one case record durably; a no-op when persistence is unavailable.
+   * @param id - case identifier to persist.
+   */
+  private async persistCase(id: QzhCaseId): Promise<void> {
+    const unit = await this.casesUnit()
+    const record = this.cases.get(id)
+    if (unit === undefined || record === undefined) return
+    await unit.putRecord('cases', String(id), record)
+  }
+
+  /** Log one persistence availability problem once per process. */
+  private warnPersistence(message: string): void {
+    if (this.persistenceWarned) return
+    this.persistenceWarned = true
+    this.ctx.logger.warn(`qzh-log-analysis: ${message}`)
   }
 
   private requireCase(sessionId: SessionId, id: QzhCaseId): CaseRecord {
@@ -487,6 +564,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       if (report === undefined) delete completed.report
       else delete completed.analysisError
       this.cases.set(id, completed)
+      await this.persistCase(id)
     } catch (error: unknown) {
       const latest = this.requireCase(sessionId, id)
       const failed: CaseRecord = {
@@ -497,6 +575,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       }
       delete failed.report
       this.cases.set(id, failed)
+      await this.persistCase(id)
     }
   }
 

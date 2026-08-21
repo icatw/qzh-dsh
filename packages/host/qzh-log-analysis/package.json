@@ -2,7 +2,9 @@
   "name": "@deepseek-ai/dsh-host-qzh-log-analysis",
   "description": "QZH case Remote API and read-only source mirror access for the DSH Web Host",
   "version": "0.1.0-rc.5",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
@@ -12,11 +14,26 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
-    "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
-    "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" },
-    "./typert": { "types": "./lib/typert.host.d.ts", "default": "./lib/typert.host.js" },
-    "./remote": { "types": "./lib/typert.remote-client.d.ts", "default": "./lib/typert.remote-client.js" },
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -35,7 +52,8 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "@vscode/ripgrep": "^1.18.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-storage": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
@@ -56,6 +74,7 @@
     "@deepseek-ai/dsh-subprocess": "workspace:^",
     "@deepseek-ai/dsh-subprocess-local": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-storage-json": "workspace:^"
   }
 }

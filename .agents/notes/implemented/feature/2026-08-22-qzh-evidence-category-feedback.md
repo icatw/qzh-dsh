@@ -22,8 +22,8 @@ A completed case accepts one user verdict through a new `setFeedback(sessionId, 
 
 ## Consequences
 
-Cross-machine analysis can distinguish server from terminal evidence end to end, and the two sides never merge in error clustering. Report quality becomes measurable through the verdict, at the cost of a slightly larger evidence payload and one more case field. Feedback is per-case and in-memory for now, matching the existing deferred case persistence; it does not yet feed an aggregate quality dashboard or a notification event.
+Cross-machine analysis can distinguish server from terminal evidence end to end, and the two sides never merge in error clustering. Report quality becomes measurable through the verdict, at the cost of a slightly larger evidence payload and one more case field. Cases are now durable: every mutation is written through the `ctx.storage` kv backend (`qzh_cases` unit, default `json` backend, `storageBackend` configurable) and restored on first access after a restart, degrading to in-memory operation with a one-time warning when storage is unavailable. Feedback is persisted with the case; an aggregate quality dashboard and notification events remain future work.
 
 ## Related
 
-Builds on `2026-08-22-qzh-evidence-layout.md` (layout rules, per-file samples, `qzh_list_evidence`); the workbench and details-panel integration is `2026-08-21-qzh-details-panel.md`.
+Builds on `2026-08-22-qzh-evidence-layout.md` (layout rules, per-file samples, `qzh_list_evidence`); the workbench and details-panel integration is `2026-08-21-qzh-details-panel.md`. The durable case store is the first step toward shared case search and role-based visibility.

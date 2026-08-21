@@ -52,8 +52,12 @@ export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, sta
   }
   const submitFeedback = async (kind: QzhFeedbackKind, comment?: string): Promise<void> => {
     if (state.caseView === undefined) return
-    const updated = await setFeedback(state.caseView.id, kind, comment)
-    actions.setCaseView(updated)
+    try {
+      const updated = await setFeedback(state.caseView.id, kind, comment)
+      actions.setCaseView(updated)
+    } catch (error) {
+      actions.setStatus(`反馈提交失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   return state.panelOpen
     ? <div className={css.dockExpanded}><QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} /><QzhEvidencePreview evidence={evidence} /></div>
