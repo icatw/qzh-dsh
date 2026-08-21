@@ -16,7 +16,12 @@ export function QzhEvidenceTable({ files }: Props) {
       <div className={css.evidenceRows}>
         {files.map(file => (
           <div className={css.evidenceRow} key={file.path}>
-            <span className={css.path}>{file.path}</span>
+            <div className={css.evidenceMain}>
+              <span>{file.path}</span>
+              {file.sample !== undefined && file.sample !== '' && (
+                <code className={css.evidenceSample} title={file.sample}>{file.sample}</code>
+              )}
+            </div>
             <span>{file.component === 'unknown' ? qzhComponentLabel(file.path) : file.component} · {file.stream} · {file.size} B</span>
           </div>
         ))}

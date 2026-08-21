@@ -20,6 +20,7 @@ export function buildQzhEvidence(
       component: entry.component,
       stream: entry.stream,
       size: entry.size,
+      ...(entry.sample === '' ? {} : { sample: entry.sample }),
     })),
     clusters: visibleClusters.map(cluster => ({
       key: cluster.key,

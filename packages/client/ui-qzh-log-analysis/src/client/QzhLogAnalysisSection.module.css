@@ -35,6 +35,9 @@
 .evidenceRow:first-child, .clusterRow:first-child { border-top: 0; }
 .evidenceRow > span:first-child { min-width: 0; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evidenceRow > span:last-child { flex: none; text-align: right; }
+.evidenceMain { display: grid; gap: 3px; min-width: 0; }
+.evidenceMain > span { min-width: 0; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidenceSample { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .path, .clusterRow code, .excerpt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .clusterRow > div { display: grid; gap: 3px; min-width: 0; }
 .clusterRow strong { color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 600; }

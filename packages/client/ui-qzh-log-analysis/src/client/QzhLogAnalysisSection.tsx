@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
-import { decodeZipLogMember, listZipLogEntries, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
+import { decodeZipLogMember, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
 import { scanQzhLogLayout } from '../log-layout.ts'
 import { buildQzhEvidence } from './evidence.ts'
@@ -24,12 +24,12 @@ interface QzhActions {
 type Props = PropsRuntime<'conversation.hero.empty'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & QzhActions
 const MAX_FILES = 30
 
-function fileEntry(file: File): ImportedLogEntry | undefined {
+function fileEntry(file: File, preview: string): ImportedLogEntry | undefined {
   if (!/\.(log|txt|out)$/i.test(file.name)) return undefined
   const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath
   const rawPath = normalizeImportPath(relativePath || file.name)
-  const [layout] = scanQzhLogLayout([rawPath])
-  return layout === undefined ? undefined : { ...layout, size: file.size, source: 'file' }
+  const [layout] = scanQzhLogLayout([rawPath], { [rawPath]: preview })
+  return layout === undefined ? undefined : { ...layout, size: file.size, source: 'file', sample: logSample(preview) }
 }
 
 /** Full blank-state QZH evidence flow. The normal conversation shell owns the frame. */
@@ -76,10 +76,11 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
           for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path)))
           continue
         }
-        const entry = fileEntry(file)
+        const preview = await file.slice(0, MAX_PREVIEW_BYTES).text()
+        const entry = fileEntry(file, preview)
         if (entry === undefined) continue
         entries.push(entry)
-        events.push(...parseLogText(entry, await file.slice(0, MAX_PREVIEW_BYTES).text()))
+        events.push(...parseLogText(entry, preview))
       }
       const clusters = clusterLogErrors(events)
       actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)), clusters)

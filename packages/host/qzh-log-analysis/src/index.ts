@@ -76,12 +76,16 @@ function evidencePath(value: string): string {
 }
 
 function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
-  const files = evidence.files.slice(0, 500).map(file => ({
-    path: evidencePath(file.path),
-    component: file.component,
-    stream: file.stream,
-    size: Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0,
-  }))
+  const files = evidence.files.slice(0, 500).map(file => {
+    const sample = file.sample === undefined ? undefined : redactSensitiveText(file.sample).slice(0, 512)
+    return {
+      path: evidencePath(file.path),
+      component: file.component,
+      stream: file.stream,
+      size: Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0,
+      ...(sample === undefined || sample.length === 0 ? {} : { sample }),
+    }
+  })
   const clusters = evidence.clusters.slice(0, 500).map(cluster => ({
     key: redactSensitiveText(cluster.key).slice(0, 512),
     component: cluster.component,
@@ -161,7 +165,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       const promptDispose = systemPrompt.section({
         name: 'qzh:analysis-methodology',
         order: -20,
-        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_search_code、qzh_read_code 读取代码；不得修改代码、执行 Shell 或猜测未提供的事实。先调用 qzh_get_current_case 获取当前会话已提交的案例和日志证据，不要猜测 case_id；再对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
+        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_list_evidence、qzh_search_code、qzh_read_code 读取代码与证据；不得修改代码、执行 Shell 或猜测未提供的事实。先调用 qzh_list_evidence 查看证据包内完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定的日志布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验案例上下文，对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
       })
       const currentCaseDispose = tools.register(defineTool({
         name: 'qzh_get_current_case',
@@ -195,6 +199,22 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
+      const listEvidenceDispose = tools.register(defineTool({
+        name: 'qzh_list_evidence',
+        description: '列出当前 QZH 案例证据包内的完整日志文件清单（真实相对路径、组件标签、stream、大小、首行样例）和异常聚类。用于先摸清现场日志布局再定位根因；不要假设固定的日志目录结构，浏览器提供的组件标签可能只是初始推断。case_id 可省略，Host 会绑定当前会话案例。',
+        parameters: {
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+        },
+        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+        isConcurrencySafe: () => true,
+        async execute(args, exec) {
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH evidence listing is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          return service.evidenceForTool(record) as unknown as Record<string, JsonValue>
+        },
+      }))
       const readDispose = tools.register(defineTool({
         name: 'qzh_read_code',
         description: '从固定 QZH Git mirror 读取有限行号范围的源码；case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。只读且返回实际 commit。',
@@ -216,7 +236,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
-      return () => { promptDispose(); currentCaseDispose(); searchDispose(); readDispose() }
+      return () => { promptDispose(); currentCaseDispose(); searchDispose(); listEvidenceDispose(); readDispose() }
     }, 'qzh-log-analysis:agent-capabilities')
   }
 
@@ -396,6 +416,26 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     return { ...this.resolveToolCase(sessionId) }
   }
 
+  /** Structure-first evidence projection for the model-facing list tool.
+   * @param record - the tool-resolved case record.
+   * @returns detached files and clusters with per-file layout samples.
+   */
+  private evidenceForTool(record: CaseRecord): Record<string, unknown> {
+    const evidence = record.evidence
+    if (evidence === undefined) return { case_id: record.id, files: [], clusters: [] }
+    return {
+      case_id: record.id,
+      files: evidence.files.map(file => ({ ...file })),
+      clusters: evidence.clusters.map(cluster => ({
+        key: cluster.key,
+        component: cluster.component,
+        severity: cluster.severity,
+        count: cluster.count,
+        ...(cluster.sample === undefined ? {} : { sample: cluster.sample }),
+      })),
+    }
+  }
+
   private async runAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<void> {
     try {
       const record = this.requireCase(sessionId, id)
@@ -445,7 +485,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       `日志文件：${JSON.stringify(evidence.files)}`,
       `异常聚类：${JSON.stringify(evidence.clusters)}`,
       `日志短样例：${evidence.excerpt ?? '未提供'}`,
-      '先调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
+      '先调用 qzh_list_evidence 查看完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
       '请按以下结构输出中文报告：结论；事实证据；代码定位（仓库/commit/路径/行号）；根因推断；可信度；信息缺口；现场验证步骤；修复建议（只描述，不修改代码）。',
     ].join('\n')
   }

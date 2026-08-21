@@ -70,7 +70,7 @@ describe('QZH blank-session analysis surface', () => {
   })
 
   it('shows the exact outbound sample and submits that same payload after consent', async () => {
-    const { instance, props: input } = props()
+    const { props: input } = props()
     const log = new File(['2026-08-21 10:20:30 ERROR qzh failure'], 'qzh_web_agent.log', { type: 'text/plain' })
     render(<QzhLogAnalysisSection {...input} />)
     fireEvent.change(screen.getByLabelText('选择日志目录'), { target: { files: [log] } })
@@ -89,7 +89,7 @@ describe('QZH blank-session analysis surface', () => {
   it('opens the native details column when an active QZH case is present', async () => {
     const { instance, props: input } = props()
     instance.actions.setImported([{
-      path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file',
+      path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file', sample: '',
     }], [])
     instance.actions.setCaseView({
       id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'analyzing', createdAt: 1, updatedAt: 1,

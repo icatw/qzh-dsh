@@ -68,4 +68,32 @@ describe('QzhLogAnalysisService', () => {
     expect(current.evidence?.files[0]?.path).toBe('services/web/runtime.log')
     expect(toolApi.resolveToolCase(sessionId, 'a-model-guessed-id').id).toBe(created.id)
   })
+
+  it('re-sanitizes per-file layout samples and exposes them to the model-facing list tool', () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    const service = new QzhLogAnalysisService(ctx, { mirrorRoot: '/tmp/qzh-mirror' })
+    const sessionId = 'session-sample' as SessionId
+    const created = service.createCase(sessionId, {})
+    const saved = service.setEvidence(sessionId, created.id, {
+      consent: { approved: true, destination: 'internal-qzh-analysis' },
+      files: [{
+        path: 'customer-a/bundle/logs/runtime.log',
+        component: 'unknown',
+        stream: 'log',
+        size: 64,
+        sample: '2026-08-21 10:00:00 ERROR Authorization: Bearer secret-value',
+      }],
+      clusters: [{ key: 'boom', component: 'unknown', severity: 'error', count: 1, sample: 'ERROR boom' }],
+    })
+    const sample = saved.evidence?.files[0]?.sample
+    expect(sample).toContain('[REDACTED]')
+    expect(sample).not.toContain('secret-value')
+    const toolApi = service as unknown as {
+      evidenceForTool: (record: { id: unknown; evidence?: unknown }) => Record<string, unknown>
+    }
+    const listed = toolApi.evidenceForTool(saved) as { files: Array<{ path: string; sample?: string }> }
+    expect(listed.files[0]).toMatchObject({ path: 'customer-a/bundle/logs/runtime.log', component: 'unknown' })
+    expect(listed.files[0]?.sample).toContain('[REDACTED]')
+  })
 })

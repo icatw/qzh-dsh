@@ -23,6 +23,8 @@ export interface QzhEvidenceFile {
   readonly component: string
   readonly stream: string
   readonly size: number
+  /** Bounded first-line layout sample submitted with the evidence. */
+  readonly sample?: string
 }
 
 /** One local error cluster retained with a case. */
