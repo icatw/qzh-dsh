@@ -57,7 +57,11 @@ export function apply(ctx: ClientContext): void {
     send: async (text: string): Promise<void> => {
       const scope = sessions.scope(sessionId)
       if (scope === undefined) throw new Error(`QZH session ${String(sessionId)} is unavailable`)
-      await scope.conversation.send(text)
+      // Scope-addressed service access must go through `get`; the property
+      // proxy on a scope without the service in its inject list throws.
+      const conversation = scope.get('conversation')
+      if (conversation === undefined) throw new Error(`QZH session ${String(sessionId)} has no conversation service`)
+      await conversation.send(text)
     },
   })
 

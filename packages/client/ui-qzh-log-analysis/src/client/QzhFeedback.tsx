@@ -3,7 +3,8 @@ import type { QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
 import css from './QzhLogAnalysisSection.module.css'
 
 interface Props {
-  readonly feedback?: QzhFeedbackKind
+  /** The recorded verdict; undefined when the user has not voted yet. */
+  readonly feedback: QzhFeedbackKind | undefined
   readonly onFeedback: (kind: QzhFeedbackKind, comment?: string) => void
 }
 /** Capture a helpful / not-helpful verdict on the completed report. */
