@@ -23,6 +23,7 @@ export function ConversationRoot({
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
+  const agentPreset = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.agentPreset)
   const workspaces = useWorkspaces(s => s)
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
@@ -78,6 +79,8 @@ export function ConversationRoot({
     && summaryBlank !== true
   const hero = sessionId === undefined
     || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))
+  const qzh = agentPreset === 'qzh'
+  const qzhBlank = qzh && sessionId !== undefined && hero
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -156,7 +159,20 @@ export function ConversationRoot({
     footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
   })
 
-  const composerBar = (
+  const qzhComposer = qzh && !qzhBlank
+    ? renderSlot('conversation.composer.qzh', {})
+    : null
+
+  const composerBar = qzhBlank
+    ? <div className={clsx(css.composerStack, css.composerHero)}>{renderSlot('conversation.hero.empty', {})}</div>
+    : qzh
+      ? (
+        <div className={css.composerStack}>
+          {qzhComposer}
+          {renderSlot('conversation.composer.qzh.dock', {})}
+        </div>
+      )
+      : (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell t={t} />}
@@ -164,7 +180,7 @@ export function ConversationRoot({
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
-  )
+      )
 
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(

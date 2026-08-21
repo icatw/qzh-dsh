@@ -70,7 +70,7 @@ export class ModelDirectoryResolver extends Service {
     const { live } = this
     const existing = live.directories.get(sessionId)
     if (existing !== undefined) return existing
-    const sessions = this.ctx.get('sessions') as SessionRuntime
+    const sessions = this.ctx.get('sessions') as unknown as SessionRuntime
     const actx = sessions.scope(sessionId)
     if (actx === undefined) throw new Error(`ui-model-selection: session "${String(sessionId)}" resolved no scope`)
     const connection = this.ctx.get('connection') as ConnectionHandle

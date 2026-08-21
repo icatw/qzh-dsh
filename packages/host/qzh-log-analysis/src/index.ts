@@ -3,7 +3,7 @@ import { realpath, readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
@@ -23,18 +23,12 @@ export type * from './types.ts'
 
 /** Host mirror configuration. The mirror root is never supplied by the browser. */
 export interface Config {
-  /** Absolute directory containing `server/`, `terminal/`, and optional `legacy/` mirrors. */
+  /** Absolute directory containing `server/`, or the QZH checkout itself. */
   mirrorRoot: string
   /** Maximum code bytes returned by one read operation. */
   maxReadBytes?: number
   /** Maximum matches returned by one search operation. */
   maxSearchResults?: number
-  /** DSH provider route used for QZH analysis. */
-  analysisProvider?: string
-  /** DSH model id used for QZH analysis. */
-  analysisModel?: string
-  /** Maximum output tokens for one QZH report turn. */
-  analysisMaxTokens?: number
 }
 
 type CaseRecord = { -readonly [K in keyof QzhCaseView]: QzhCaseView[K] }
@@ -44,9 +38,6 @@ const DEFAULT_MAX_SEARCH_RESULTS = 100
 const COMMAND_GRACE_MS = 3_000
 const STDERR_MAX_BYTES = 16 * 1024
 const EVIDENCE_DESTINATION = 'internal-qzh-analysis' as const
-const DEFAULT_ANALYSIS_PROVIDER = 'deepseek-official'
-const DEFAULT_ANALYSIS_MODEL = 'deepseek-v4-flash'
-const DEFAULT_ANALYSIS_MAX_TOKENS = 16_384
 
 function caseId(value: string): QzhCaseId {
   return value as QzhCaseId
@@ -77,11 +68,8 @@ function redactSensitiveText(value: string): string {
 
 function evidencePath(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '').replace(/^\/+/, '')
-  if (normalized.includes('\0') || normalized.split('/').some(segment => segment === '..' || segment === '')) {
+  if (normalized.length === 0 || normalized.includes('\0') || normalized.split('/').some(segment => segment === '..' || segment === '')) {
     throw new Error('QZH evidence path is invalid')
-  }
-  if (!normalized.startsWith('data/logs/')) {
-    throw new Error('QZH evidence path must be under /data/logs')
   }
   return normalized
 }
@@ -107,7 +95,7 @@ function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
 }
 
 function ensureRepository(value: QzhRepository): QzhRepository {
-  if (value === 'server' || value === 'terminal' || value === 'legacy') return value
+  if (value === 'server') return value
   throw new Error(`QZH repository ${String(value)} is not supported`)
 }
 
@@ -146,20 +134,16 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     mirrorRoot: z.string().required(),
     maxReadBytes: z.natural().default(DEFAULT_MAX_READ_BYTES),
     maxSearchResults: z.natural().default(DEFAULT_MAX_SEARCH_RESULTS),
-    analysisProvider: z.string().default(DEFAULT_ANALYSIS_PROVIDER),
-    analysisModel: z.string().default(DEFAULT_ANALYSIS_MODEL),
-    analysisMaxTokens: z.natural().default(DEFAULT_ANALYSIS_MAX_TOKENS),
   })
 
   private readonly cases = new Map<QzhCaseId, CaseRecord>()
   private readonly maxReadBytes: number
   private readonly maxSearchResults: number
   private readonly mirrorRoot: string
-  private readonly analysisProvider: string
-  private readonly analysisModel: string
-  private readonly analysisMaxTokens: number
   private readonly ownerCtx: Context
   private readonly analysisRuns = new Map<QzhCaseId, Promise<void>>()
+  /** Latest submitted case used as implicit context by model-facing tools. */
+  private readonly activeCases = new Map<SessionId, QzhCaseId>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'qzhLogAnalysis')
@@ -168,9 +152,6 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.mirrorRoot = resolve(config.mirrorRoot)
     this.maxReadBytes = config.maxReadBytes ?? DEFAULT_MAX_READ_BYTES
     this.maxSearchResults = config.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS
-    this.analysisProvider = config.analysisProvider ?? DEFAULT_ANALYSIS_PROVIDER
-    this.analysisModel = config.analysisModel ?? DEFAULT_ANALYSIS_MODEL
-    this.analysisMaxTokens = config.analysisMaxTokens ?? DEFAULT_ANALYSIS_MAX_TOKENS
     const service = this
     const tools = ctx.get('tools')
     const systemPrompt = ctx.get('systemPrompt')
@@ -179,28 +160,46 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       const promptDispose = systemPrompt.section({
         name: 'qzh:analysis-methodology',
         order: -20,
-        text: '你是 QZH 故障分析 Agent。只使用 qzh_search_code、qzh_read_code、qzh_compare_legacy 读取 QZH 代码；不得修改代码、执行 Shell 或猜测未提供的事实。先对齐日志时间和错误链，再定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
+        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_search_code、qzh_read_code 读取代码；不得修改代码、执行 Shell 或猜测未提供的事实。先调用 qzh_get_current_case 获取当前会话已提交的案例和日志证据，不要猜测 case_id；再对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
       })
+      const currentCaseDispose = tools.register(defineTool({
+        name: 'qzh_get_current_case',
+        description: '获取当前 QZH 会话最近提交的案例、日志文件清单、异常聚类和短样例。无需参数；不要猜测案例 ID。',
+        parameters: {},
+        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+        isConcurrencySafe: () => true,
+        async execute(_args, exec) {
+          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH current case is available only in a qzh Agent session')
+          const sessionId = exec.agent?.session.header.id
+          if (sessionId === undefined) throw new Error('QZH current case requires an Agent-backed session')
+          return service.currentCaseForTool(sessionId) as unknown as Record<string, JsonValue>
+        },
+      }))
       const searchDispose = tools.register(defineTool({
         name: 'qzh_search_code',
-        description: '在固定 QZH Git mirror 中进行只读固定字符串搜索。返回命中的仓库、commit、路径、行号和代码行。',
+        description: '在固定 QZH Git mirror 中进行只读固定字符串搜索。case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。返回命中的仓库、commit、路径、行号和代码行。',
         parameters: {
-          case_id: { type: 'string', required: true, description: '当前 QZH 案例 ID。' },
-          repository: { type: 'string', required: true, enum: ['server', 'terminal', 'legacy'], description: 'server、terminal 或 legacy。' },
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+          repository: { type: 'string', required: true, enum: ['server'], description: '当前 QZH 服务端仓库。' },
           query: { type: 'string', required: true, description: '要搜索的错误文本、函数名或路径片段。' },
         },
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
         async execute(args, exec) {
-          return await service.searchCode(caseId(args.case_id), args.repository, args.query, exec.signal) as unknown as Record<string, JsonValue>
+          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH code search is available only in a qzh Agent session')
+          const sessionId = exec.agent?.session.header.id
+          if (sessionId === undefined) throw new Error('QZH code search requires an Agent-backed session')
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          const result = await service.searchCode(sessionId, record.id, args.repository, args.query, exec.signal)
+          return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
       const readDispose = tools.register(defineTool({
         name: 'qzh_read_code',
-        description: '从固定 QZH Git mirror 读取有限行号范围的源码；只读且返回实际 commit。',
+        description: '从固定 QZH Git mirror 读取有限行号范围的源码；case_id 可省略，Host 会绑定当前会话案例；不要猜测案例 ID。只读且返回实际 commit。',
         parameters: {
-          case_id: { type: 'string', required: true, description: '当前 QZH 案例 ID。' },
-          repository: { type: 'string', required: true, enum: ['server', 'terminal', 'legacy'], description: 'server、terminal 或 legacy。' },
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+          repository: { type: 'string', required: true, enum: ['server'], description: '当前 QZH 服务端仓库。' },
           path: { type: 'string', required: true, description: '仓库内相对路径。' },
           start_line: { type: 'number', description: '起始行号，默认 1。' },
           end_line: { type: 'number', description: '结束行号，最多读取 500 行。' },
@@ -208,37 +207,25 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
         async execute(args, exec) {
-          return await service.readCode(caseId(args.case_id), args.repository, args.path, args.start_line, args.end_line, exec.signal) as unknown as Record<string, JsonValue>
+          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH code reading is available only in a qzh Agent session')
+          const sessionId = exec.agent?.session.header.id
+          if (sessionId === undefined) throw new Error('QZH code reading requires an Agent-backed session')
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          const result = await service.readCode(sessionId, record.id, args.repository, args.path, args.start_line, args.end_line, exec.signal)
+          return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
-      const compareDispose = tools.register(defineTool({
-        name: 'qzh_compare_legacy',
-        description: '读取 server/terminal 当前实现与 legacy 同路径源码，帮助判断迁移差异；只读。',
-        parameters: {
-          case_id: { type: 'string', required: true, description: '当前 QZH 案例 ID。' },
-          path: { type: 'string', required: true, description: '同时存在于当前仓库和 legacy 仓库的相对路径。' },
-          start_line: { type: 'number', description: '起始行号，默认 1。' },
-          end_line: { type: 'number', description: '结束行号，最多读取 500 行。' },
-        },
-        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-        isConcurrencySafe: () => true,
-        async execute(args, exec) {
-          const path = args.path
-          const current = await service.readCode(caseId(args.case_id), 'server', path, args.start_line, args.end_line, exec.signal)
-          const legacy = await service.readCode(caseId(args.case_id), 'legacy', path, args.start_line, args.end_line, exec.signal)
-          return { path, current, legacy } as unknown as Record<string, JsonValue>
-        },
-      }))
-      return () => { promptDispose(); searchDispose(); readDispose(); compareDispose() }
+      return () => { promptDispose(); currentCaseDispose(); searchDispose(); readDispose() }
     }, 'qzh-log-analysis:agent-capabilities')
   }
 
   /** Create an in-memory case record for the current Host process.
+   * @param sessionId - owning DSH session.
    * @param request - case metadata supplied by the browser.
    * @returns newly created case view.
    */
   @Remote('createCase')
-  createCase(request: QzhCreateCaseRequest): QzhCaseView {
+  createCase(sessionId: SessionId, request: QzhCreateCaseRequest): QzhCaseView {
     const timestamp = now()
     const id = caseId(`qzh-case-${randomUUID()}`)
     const customerLabel = trimOptional(request.customerLabel, 256)
@@ -246,6 +233,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     const failureDescription = trimOptional(request.failureDescription, 8_192)
     const record: CaseRecord = {
       id,
+      sessionId,
       state: 'draft',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -254,17 +242,19 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       ...failureDescription === undefined ? {} : { failureDescription },
     }
     this.cases.set(id, record)
+    this.activeCases.set(sessionId, id)
     return { ...record }
   }
 
   /** Attach browser-approved parsed evidence; raw logs remain opt-in.
+   * @param sessionId - owning DSH session.
    * @param id - case identifier.
    * @param evidence - browser-approved evidence summary.
    * @returns updated case view.
    */
   @Remote('setEvidence')
-  setEvidence(id: QzhCaseId, evidence: QzhEvidenceSummary): QzhCaseView {
-    const record = this.requireCase(id)
+  setEvidence(sessionId: SessionId, id: QzhCaseId, evidence: QzhEvidenceSummary): QzhCaseView {
+    const record = this.requireCase(sessionId, id)
     if (!evidence.consent.approved || evidence.consent.destination !== EVIDENCE_DESTINATION) {
       throw new Error('QZH evidence consent must approve the internal analysis destination')
     }
@@ -277,42 +267,46 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       evidence: sanitized,
     }
     this.cases.set(id, next)
+    this.activeCases.set(sessionId, id)
     return { ...next }
   }
 
   /** Start one DSH Agent Loop turn using the case evidence as logged context.
+   * @param sessionId - owning live DSH session.
    * @param id - case identity.
    * @returns the admitted DSH analysis session and updated case.
    */
   @Remote('startAnalysis')
-  async startAnalysis(id: QzhCaseId): Promise<QzhAnalysisStartResult> {
-    const record = this.requireCase(id)
+  async startAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<QzhAnalysisStartResult> {
+    const record = this.requireCase(sessionId, id)
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
     if ((record.state === 'analyzing' || record.state === 'completed') && record.analysisSessionId !== undefined) {
       return { case: { ...record }, sessionId: record.analysisSessionId }
     }
     const existing = this.analysisRuns.get(id)
-    if (existing !== undefined) return { case: { ...record }, sessionId: record.analysisSessionId ?? '' }
-    const sessionId = SessionId(`qzh-analysis-${id}`)
+    if (existing !== undefined) return { case: { ...record }, sessionId }
     const next: CaseRecord = { ...record, state: 'analyzing', updatedAt: now(), analysisSessionId: sessionId }
     delete next.report
     delete next.analysisError
     this.cases.set(id, next)
-    const run = this.runAnalysis(id, sessionId).finally(() => { this.analysisRuns.delete(id) })
+    this.activeCases.set(sessionId, id)
+    const run = this.runAnalysis(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
     this.analysisRuns.set(id, run)
     return { case: { ...next }, sessionId }
   }
 
   /** Read one case summary without exposing the internal mutable record.
+   * @param sessionId - owning DSH session.
    * @param id - case identifier.
    * @returns detached case view.
    */
   @Remote('getCase')
-  getCase(id: QzhCaseId): QzhCaseView {
-    return { ...this.requireCase(id) }
+  getCase(sessionId: SessionId, id: QzhCaseId): QzhCaseView {
+    return { ...this.requireCase(sessionId, id) }
   }
 
   /** Search one configured mirror with the packaged ripgrep binary.
+   * @param sessionId - owning DSH session.
    * @param id - case identifier authorizing the lookup.
    * @param repository - configured QZH repository.
    * @param query - fixed-string search query.
@@ -320,8 +314,8 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns bounded matches and the exact mirror commit.
    */
   @Remote('searchCode')
-  async searchCode(id: QzhCaseId, repository: QzhRepository, query: string, signal?: AbortSignal): Promise<QzhCodeSearchResult> {
-    this.requireCase(id)
+  async searchCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, query: string, signal?: AbortSignal): Promise<QzhCodeSearchResult> {
+    this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const root = await this.repositoryRoot(repo)
     const text = query.trim()
@@ -346,6 +340,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   }
 
   /** Read a bounded source slice from the configured mirror.
+   * @param sessionId - owning DSH session.
    * @param id - case identifier authorizing the lookup.
    * @param repository - configured QZH repository.
    * @param path - repository-relative source path.
@@ -355,8 +350,8 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns bounded source text and the exact mirror commit.
    */
   @Remote('readCode')
-  async readCode(id: QzhCaseId, repository: QzhRepository, path: string, startLine?: number, endLine?: number, signal?: AbortSignal): Promise<QzhCodeReadResult> {
-    this.requireCase(id)
+  async readCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, path: string, startLine?: number, endLine?: number, signal?: AbortSignal): Promise<QzhCodeReadResult> {
+    this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const safePath = ensureRelativePath(path)
     const requestedStart = startLine ?? 1
@@ -376,23 +371,35 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     return { repository: repo, commit: await this.currentCommit(root, signal), path: safePath, startLine: first, endLine: Math.min(last, lines.length), text }
   }
 
-  private requireCase(id: QzhCaseId): CaseRecord {
+  private requireCase(sessionId: SessionId, id: QzhCaseId): CaseRecord {
     const record = this.cases.get(id)
     if (record === undefined) throw new Error(`QZH case ${String(id)} was not found`)
+    if (record.sessionId !== sessionId) throw new Error(`QZH case ${String(id)} does not belong to session ${String(sessionId)}`)
     return record
   }
 
-  private async runAnalysis(id: QzhCaseId, sessionId: string): Promise<void> {
+  /** Resolve the latest case in a session for model-facing tools. */
+  private resolveToolCase(sessionId: SessionId, requestedId?: string): CaseRecord {
+    const requested = requestedId?.trim()
+    if (requested !== undefined && requested.length > 0) {
+      const requestedRecord = this.cases.get(caseId(requested))
+      if (requestedRecord?.sessionId === sessionId) return requestedRecord
+    }
+    const activeId = this.activeCases.get(sessionId)
+    if (activeId !== undefined) return this.requireCase(sessionId, activeId)
+    throw new Error('QZH session has no submitted case; import and submit log evidence first')
+  }
+
+  /** Return the current session case so the Agent never needs to guess an ID. */
+  private currentCaseForTool(sessionId: SessionId): QzhCaseView {
+    return { ...this.resolveToolCase(sessionId) }
+  }
+
+  private async runAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<void> {
     try {
-      const record = this.requireCase(id)
-      const agent = (await this.ownerCtx.agents.create({
-        sessionId: SessionId(sessionId),
-        agentOptions: { provider: this.analysisProvider, model: this.analysisModel, maxTokens: this.analysisMaxTokens },
-        meta: { cwd: this.mirrorRoot },
-        setup: (agentCtx) => {
-          agentCtx.tools.restrict({ allow: ['qzh_search_code', 'qzh_read_code', 'qzh_compare_legacy'] })
-        },
-      })).agent
+      const record = this.requireCase(sessionId, id)
+      const agent = this.ownerCtx.agents.get(sessionId)
+      if (agent === undefined || agent.session.header.id !== sessionId) throw new Error(`QZH session ${String(sessionId)} is not live`)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: this.analysisPrompt(record) }],
         source: { kind: 'plugin', plugin: 'qzh-log-analysis', form: 'instructions' },
@@ -403,7 +410,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         .map(event => event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join(''))
         .filter(text => text.length > 0)
         .at(-1)
-      const latest = this.requireCase(id)
+      const latest = this.requireCase(sessionId, id)
       const completed: CaseRecord = {
         ...latest,
         state: report === undefined ? 'failed' : 'completed',
@@ -414,7 +421,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       else delete completed.analysisError
       this.cases.set(id, completed)
     } catch (error: unknown) {
-      const latest = this.requireCase(id)
+      const latest = this.requireCase(sessionId, id)
       const failed: CaseRecord = {
         ...latest,
         state: 'failed',
@@ -437,6 +444,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       `日志文件：${JSON.stringify(evidence.files)}`,
       `异常聚类：${JSON.stringify(evidence.clusters)}`,
       `日志短样例：${evidence.excerpt ?? '未提供'}`,
+      '先调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
       '请按以下结构输出中文报告：结论；事实证据；代码定位（仓库/commit/路径/行号）；根因推断；可信度；信息缺口；现场验证步骤；修复建议（只描述，不修改代码）。',
     ].join('\n')
   }
@@ -447,7 +455,15 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   }
 
   private async repositoryRoot(repository: QzhRepository): Promise<string> {
-    const root = await realpath(resolve(this.mirrorRoot, repository))
+    const configured = resolve(this.mirrorRoot, repository)
+    let root: string
+    try {
+      root = await realpath(configured)
+    } catch (error: unknown) {
+      if (repository !== 'server' || !(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
+      root = await realpath(this.mirrorRoot)
+      await stat(resolve(root, '.git'))
+    }
     if (!this.isWithin(this.mirrorRoot, root)) throw new Error('QZH repository resolves outside the configured mirror root')
     return root
   }

@@ -16,14 +16,27 @@ describe('QZH log parser', () => {
     expect(clusters[0]).toMatchObject({ severity: 'error', count: 2 })
   })
 
-  it('reads only supported /data/logs members from a ZIP', () => {
+  it('discovers log members without requiring a fixed archive directory', () => {
     const bytes = zipSync({
-      'data/logs/qzh_agent.log': strToU8('2026-08-21 10:00:00 ERROR flush failed'),
+      'runtime/server/qzh_agent.log': strToU8('2026-08-21 10:00:00 ERROR flush failed'),
       'data/config.yaml': strToU8('not a log'),
+      'metadata/summary.txt': strToU8('generated summary'),
     })
     const entries = listZipLogEntries(bytes)
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ path: 'data/logs/qzh_agent.log', source: 'archive', component: 'agent' })
+    expect(entries[0]).toMatchObject({ path: 'runtime/server/qzh_agent.log', source: 'archive', component: 'agent' })
     expect(decodeZipLogMember(bytes, entries[0]!.path)).toContain('flush failed')
+  })
+
+  it('accepts common service log paths when a ZIP has no /data/logs prefix', () => {
+    const bytes = zipSync({
+      'services/web/qzh_web_agent.log': strToU8('2026-08-21 10:00:00 ERROR request failed'),
+      'manifest.json': strToU8('{}'),
+      'summary.txt': strToU8('not a log'),
+    })
+    const entries = listZipLogEntries(bytes)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ path: 'services/web/qzh_web_agent.log', source: 'archive', component: 'web-agent' })
+    expect(parseLogText(entries[0]!, decodeZipLogMember(bytes, entries[0]!.path))).toHaveLength(1)
   })
 })

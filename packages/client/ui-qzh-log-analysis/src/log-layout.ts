@@ -5,14 +5,14 @@ export interface QzhLogFile {
   stream: 'log' | 'error' | 'unknown'
 }
 
-/** Recognize supported files under the imported `/data/logs` layout.
+/** Describe supported log-like files from any imported relative layout.
  * @param paths - imported browser or archive paths.
  * @returns sorted QZH log file descriptors.
  */
 export function scanQzhLogLayout(paths: readonly string[]): QzhLogFile[] {
   return paths
     .map(path => path.replaceAll('\\', '/').replace(/^\.\//, ''))
-    .filter(path => path.startsWith('data/logs/') || path.startsWith('/data/logs/') || path.includes('/data/logs/'))
+    .filter(path => !path.endsWith('/') && /\.(log|out|txt)$/i.test(path))
     .map((path): QzhLogFile => {
       const filename = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
       const component = filename.includes('qzh_web_agent')
@@ -24,7 +24,7 @@ export function scanQzhLogLayout(paths: readonly string[]): QzhLogFile[] {
             : filename.includes('qzh_agent')
               ? 'agent'
               : 'unknown'
-      const stream = filename.includes('error') ? 'error' : filename.includes('log') ? 'log' : 'unknown'
+      const stream = /(?:^|[-_.])(error|err|stderr)(?:[-_.]|$)/.test(filename) ? 'error' : 'log'
       return { path, component, stream }
     })
     .sort((left, right) => left.path.localeCompare(right.path))

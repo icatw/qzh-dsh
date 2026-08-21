@@ -1,0 +1,4 @@
+.action { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.action[aria-pressed='true'] { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); }
+.mark { font-size: 14px; line-height: 1; }
+.badge { min-width: 16px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); padding: 1px 4px; text-align: center; font-size: 10px; }

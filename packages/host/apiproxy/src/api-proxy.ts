@@ -2274,6 +2274,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = selectionFor(found.agent).current
+        if (resolveSessionPreset(found.agent.session) === 'qzh') {
+          return ok(request, { current: { ...current }, routable: true, groups: [], failures: [] })
+        }
         const { groups, failures } = await buildModelCatalog(ctx)
         const routable = routeServed(current.provider)
         return ok(request, { current: { ...current }, routable, groups, failures })
@@ -2283,6 +2286,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
+        if (resolveSessionPreset(found.agent.session) === 'qzh') {
+          return err(request, {
+            code: 'model-unavailable',
+            message: 'QZH 日志分析会话使用固定标准分析模型，不能切换模型。',
+            details: { provider, model },
+          })
+        }
         return serializeImageAdmission(found.agent, async () => {
           try {
             const resolved = await ctx.llm.resolveCallConfig({
@@ -2473,6 +2483,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
         if ('refused' in resolved) return resolved.refused
         const agent = resolved.agent
+        if (resolveSessionPreset(agent.session) === 'qzh' && content.some(part => part.type !== 'text')) {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: 'QZH 日志分析会话只接受文字追问，不接受附件或其他输入块。',
+            details: { agentPreset: 'qzh', reason: 'non-text-prompt' },
+          })
+        }
         // Request identity and optional browser zone ride the exact durable user message.
         const source: MessageSource = {
           kind: 'user',

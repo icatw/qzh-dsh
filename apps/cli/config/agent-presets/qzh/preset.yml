@@ -1,0 +1,3 @@
+name: QZH 日志分析
+description: 固定标准模型、只读源码 mirror，并在当前会话中分析 QZH 服务端与终端日志。
+order: 4

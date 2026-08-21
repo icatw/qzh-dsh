@@ -13,7 +13,7 @@
  */
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
 import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -93,6 +93,11 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
   return undefined
 }
 
+/** Read the durable preset hint when the host exposes the full session list face. */
+function isQzhSession(sessions: ISessions, sessionId: SessionId): boolean {
+  return sessions.list?.getSnapshot?.().byId[sessionId]?.agentPreset === 'qzh'
+}
+
 /** Dictionary namespace owned by this plugin. */
 const NS = 'model'
 
@@ -122,21 +127,22 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['commandUi', 'modelDirectories'], (scope: ClientContext) => {
     const command = scope.get('commandUi') as CommandUiContract
     const models = scope.modelDirectories
-    const sessions = scope.sessions
+    const sessions = scope.get('sessions') as unknown as ISessions
     scope.effect(() => command.register({
       name: 'model',
       description: t('command.description'),
-      available: session => sessions.subagentAddress(session.sessionId) === undefined,
+      available: session => sessions.subagentAddress(session.sessionId) === undefined
+        && !isQzhSession(sessions, session.sessionId),
       ui: {
         kind: 'popupSelect',
         options: async (session) => {
-          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+          if (sessions.subagentAddress(session.sessionId) !== undefined || isQzhSession(sessions, session.sessionId)) {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
           return optionsOf(await models.directoryFor(session.sessionId).load(), t)
         },
         onSelect: async (option, session) => {
-          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+          if (sessions.subagentAddress(session.sessionId) !== undefined || isQzhSession(sessions, session.sessionId)) {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
           const directory = models.directoryFor(session.sessionId)
@@ -153,13 +159,14 @@ export function apply(ctx: ClientContext): void {
   // Entry 2: the composer's named model seat over the SAME directory.
   ctx.inject(['slots', 'modelDirectories'], (scope: ClientContext) => {
     const models = scope.modelDirectories
-    const sessions = scope.sessions
+    const sessions = scope.get('sessions') as unknown as ISessions
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model',
       locale: NS,
       inject: (sessionId): ModelSelectInjected => {
         const directory = models.directoryFor(sessionId)
         const available = sessions.subagentAddress(sessionId) === undefined
+          && !isQzhSession(sessions, sessionId)
         return {
           available,
           directory: directory.store,

@@ -1,10 +1,11 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** Stable identity of one QZH analysis case. */
 export type QzhCaseId = Branded<'QzhCaseId'>
 
-/** Supported source repository identities in the company mirror. */
-export type QzhRepository = 'server' | 'terminal' | 'legacy'
+/** The service-side QZH checkout used by the first analysis slice. */
+export type QzhRepository = 'server'
 
 /** Lifecycle of one case in the first Host API slice. */
 export type QzhCaseState = 'draft' | 'evidence-ready' | 'analyzing' | 'completed' | 'failed'
@@ -52,6 +53,8 @@ export interface QzhEvidenceConsent {
 /** Point-in-time case view returned by the Host API. */
 export interface QzhCaseView {
   readonly id: QzhCaseId
+  /** Session that owns this case and its analysis transcript. */
+  readonly sessionId: SessionId
   readonly state: QzhCaseState
   readonly createdAt: number
   readonly updatedAt: number
@@ -59,8 +62,8 @@ export interface QzhCaseView {
   readonly productVersion?: string
   readonly failureDescription?: string
   readonly evidence?: QzhEvidenceSummary
-  /** DSH session that owns the analysis transcript, when analysis started. */
-  readonly analysisSessionId?: string
+  /** Kept for wire compatibility; always equals sessionId in this release. */
+  readonly analysisSessionId?: SessionId
   /** Final Chinese report extracted from the DSH assistant message. */
   readonly report?: string
   /** Stable failure detail when the DSH analysis turn cannot complete. */
@@ -70,7 +73,7 @@ export interface QzhCaseView {
 /** Result returned when a QZH analysis turn is admitted to the DSH Agent Loop. */
 export interface QzhAnalysisStartResult {
   readonly case: QzhCaseView
-  readonly sessionId: string
+  readonly sessionId: SessionId
 }
 
 /** A bounded code match returned from the mirror. */

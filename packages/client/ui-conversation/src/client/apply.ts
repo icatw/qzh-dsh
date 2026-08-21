@@ -208,6 +208,9 @@ export function apply(ctx: Context): void {
       'conversation.input.right': { kind: 'list', scope: 'session' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
+      'conversation.hero.empty': { kind: 'single', scope: 'session' },
+      'conversation.composer.qzh': { kind: 'single', scope: 'session' },
+      'conversation.composer.qzh.dock': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
       hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },

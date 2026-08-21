@@ -143,6 +143,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * the next one rather than applied to a current one.
      */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
+    /**
+     * The full blank-session surface. The default root renders this only for
+     * a session-specific product that replaces the generic hero and composer.
+     */
+    'conversation.hero.empty': { kind: 'single'; scope: 'session'; owner: EmptySessionHeroOwnerProps }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -199,6 +204,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * command face through its own inject.
      */
     'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
+    /** A session-specific composer replacement used by read-only products. */
+    'conversation.composer.qzh': { kind: 'single'; scope: 'session'; owner: QzhComposerOwnerProps }
+    /** Compact evidence rail rendered only by the QZH read-only composer. */
+    'conversation.composer.qzh.dock': { kind: 'single'; scope: 'session'; owner: QzhComposerOwnerProps }
     /**
      * The named plan-status seat in the composer tool row, immediately right
      * of the access-mode control — one occupant, so taking it means rendering
@@ -245,6 +254,12 @@ export interface HeroAgentPresetOwnerProps {
   /** Marker field: the chip owns its own roster, staging, and menu state. */
   children?: never
 }
+
+/** Owner share of a session-specific blank Hero. */
+export interface EmptySessionHeroOwnerProps {}
+
+/** Owner share of a session-specific read-only composer replacement. */
+export interface QzhComposerOwnerProps {}
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
@@ -574,7 +589,8 @@ export type ConversationSlotProps =
     | 'conversation.input.dock' | 'conversation.composer.dock'
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.workspace'
-    | 'conversation.hero.agentPreset'
+    | 'conversation.hero.agentPreset' | 'conversation.hero.empty'
+    | 'conversation.composer.qzh' | 'conversation.composer.qzh.dock'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

@@ -1,48 +1,82 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useSyncExternalStore } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
+import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
 
 afterEach(cleanup)
 
-describe('QZH log analysis workbench', () => {
-  it('shows the local-only evidence preview and read-only guardrail', () => {
-    render(<QzhLogAnalysisSection close={() => {}} />)
-    expect(screen.getByRole('heading', { name: '日志分析' })).toBeTruthy()
-    expect(screen.getByText('只读边界：当前页面没有代码编辑、Shell、仓库下载或 LLM 调用能力。')).toBeTruthy()
+const SESSION_ID = 'session-qzh' as SessionId
+
+function props(overrides: Partial<Record<string, unknown>> = {}) {
+  const handle = createQzhSessionStore()
+  const instance = handle.create(SESSION_ID)
+  const sessions = {
+    current: SESSION_ID,
+    ids: [SESSION_ID],
+    byId: {
+      [SESSION_ID]: {
+        sessionId: SESSION_ID,
+        displayTitle: 'QZH',
+        updatedAt: 1,
+        running: false,
+        blank: true,
+        agentPreset: 'qzh',
+      },
+    },
+  } as unknown as SessionListState
+  const useStore = ((select: (state: QzhSessionState) => unknown) => {
+    const snapshot = useSyncExternalStore(instance.subscribe, instance.getSnapshot)
+    return select(snapshot)
+  }) as SnapshotSelectorHook<QzhSessionState>
+  const caseView: QzhCaseView = { id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'draft', createdAt: 1, updatedAt: 1 }
+  const base = {
+    sessionId: SESSION_ID,
+    useSessions: ((select: (state: SessionListState) => unknown) => select(sessions)) as SnapshotSelectorHook<SessionListState>,
+    useWorkspaces: (() => undefined) as unknown as SnapshotSelectorHook<WorkspaceListState>,
+    useSession: (() => undefined) as never,
+    useInput: (() => undefined) as never,
+    useProjection: (() => undefined) as never,
+    inputActions: {} as never,
+    useStore,
+    actions: instance.actions,
+    createCase: vi.fn(async () => caseView),
+    setEvidence: vi.fn(async (_id: QzhCaseView['id'], _evidence: QzhEvidenceSummary) => ({ ...caseView, state: 'evidence-ready' as const })),
+    getCase: vi.fn(async () => caseView),
+    startAnalysis: vi.fn(async () => ({ ...caseView, state: 'analyzing' as const })),
+    ...overrides,
+  }
+  return { instance, props: base }
+}
+
+describe('QZH blank-session analysis surface', () => {
+  it('renders a compact import Hero instead of an input dock workbench', () => {
+    const { props: input } = props()
+    render(<QzhLogAnalysisSection {...input} />)
+    expect(screen.getByRole('heading', { name: '从日志开始定位故障' })).toBeTruthy()
     expect(screen.getByLabelText('选择日志目录')).toBeTruthy()
+    expect(screen.queryByText('SESSION EVIDENCE')).toBeNull()
+    expect(screen.queryByText('描述你想要构建的内容')).toBeNull()
   })
 
-  it('summarizes supported files locally and skips unsupported files', async () => {
-    render(<QzhLogAnalysisSection close={() => {}} />)
-    const input = screen.getByLabelText('选择日志目录')
-    const log = new File(['2026-08-21T10:00:00Z ERROR request failed\nINFO recovered'], 'qzh_web_agent.log', { type: 'text/plain' })
-    const note = new File(['not a log'], 'notes.json', { type: 'application/json' })
-
-    fireEvent.change(input, { target: { files: [log, note] } })
-
-    await waitFor(() => {
-      expect(screen.getByText('已读取 1 个日志文件，聚类出 1 类异常；尚未向服务端或 LLM 发送数据。')).toBeTruthy()
-    })
-    expect(screen.getByText(/web-agent · data\/logs\/qzh_web_agent\.log/)).toBeTruthy()
-    expect(screen.getByText(/B · 文件/)).toBeTruthy()
-    expect(screen.getByText(/request failed/)).toBeTruthy()
-  })
-
-  it('does not call Host until the outbound consent is checked', async () => {
-    const createCase = vi.fn().mockResolvedValue({ id: 'qzh-case-test', state: 'draft', createdAt: 1, updatedAt: 1 })
-    const setEvidence = vi.fn().mockResolvedValue({ id: 'qzh-case-test', state: 'evidence-ready', createdAt: 1, updatedAt: 2 })
-    render(<QzhLogAnalysisSection close={() => {}} createCase={createCase} setEvidence={setEvidence} />)
-    const input = screen.getByLabelText('选择日志目录')
-    fireEvent.change(input, { target: { files: [new File(['2026-08-21T10:00:00Z ERROR request failed'], 'qzh_web_agent.log')] } })
-    await waitFor(() => expect(screen.getByRole('button', { name: '提交已确认摘要到内网 Host' })).toBeTruthy())
-    const submit = screen.getByRole('button', { name: '提交已确认摘要到内网 Host' })
-    expect(submit).toHaveProperty('disabled', true)
-    fireEvent.click(screen.getByRole('checkbox'))
-    expect(submit).toHaveProperty('disabled', false)
+  it('shows the exact outbound sample and submits that same payload after consent', async () => {
+    const { instance, props: input } = props()
+    const log = new File(['2026-08-21 10:20:30 ERROR qzh failure'], 'qzh_web_agent.log', { type: 'text/plain' })
+    render(<QzhLogAnalysisSection {...input} />)
+    fireEvent.change(screen.getByLabelText('选择日志目录'), { target: { files: [log] } })
+    await waitFor(() => expect(screen.getByText('确认分析摘要')).toBeTruthy())
+    const consent = screen.getByRole('checkbox')
+    fireEvent.click(consent)
+    const submit = screen.getByRole('button', { name: '确认摘要并开始分析' })
     fireEvent.click(submit)
-    await waitFor(() => expect(createCase).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(setEvidence).toHaveBeenCalledTimes(1))
-    expect(setEvidence.mock.calls[0]?.[1]).toMatchObject({ files: [{ path: 'data/logs/qzh_web_agent.log' }] })
+    await waitFor(() => expect(input.setEvidence).toHaveBeenCalled())
+    const sent = (input.setEvidence as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as QzhEvidenceSummary
+    expect(screen.getAllByText(/ERROR qzh failure/).length).toBeGreaterThan(0)
+    expect(sent.excerpt).toContain('ERROR qzh failure')
+    expect(input.startAnalysis).toHaveBeenCalledWith('case')
   })
 })
