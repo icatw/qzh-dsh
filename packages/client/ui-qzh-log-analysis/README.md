@@ -2,7 +2,11 @@
 
 English | [中文](README.zh.md)
 
-QZH 日志分析 Web preset 的浏览器入口。Blank QZH sessions use a dedicated full-width `conversation.hero.empty` entry; the complete import workbench no longer occupies `conversation.input.dock`. After submission, the normal DSH conversation layout returns with a plain-text-only `conversation.composer.qzh` follow-up surface and a collapsible `conversation.composer.qzh.dock` evidence rail. Logs are parsed locally in the browser; the reviewed summary is submitted through `ctx.remote.qzhLogAnalysis` with `sessionId + caseId`. QZH sessions use the fixed standard model and hide model selection in the browser.
+Loading the QZH plugin selects the QZH workbench by default. The switcher and session browser separate QZH and General DSH by preset while both continue to reuse DSH's session and message framework.
+
+QZH 日志分析 Web preset 的浏览器入口。Blank QZH sessions use a dedicated full-width `conversation.hero.empty` entry; the complete import workbench no longer occupies `conversation.input.dock`. After submission, the normal DSH conversation layout returns with a read-only analysis status, evidence summary, and report in the right-side `conversation.details.qzh` panel, while `conversation.composer.qzh` remains available for plain-text follow-up questions. Logs are parsed locally in the browser; the reviewed summary is submitted through `ctx.remote.qzhLogAnalysis` with `sessionId + caseId`. QZH sessions use the fixed standard model and hide model selection in the browser.
+
+The right-side panel keeps polling the Host case until the report completes or fails. The submitted session remains in its original workspace and is named `QZH 日志分析` when it has no user-defined title. Imported files infer component labels from QZH filenames, parent directories, or file stems, so generic archive layouts do not collapse every file into `unknown`.
 
 ## Model Experience
 

@@ -23,6 +23,7 @@ const neverHook = (() => { throw new Error('shell must not read global hooks') }
 
 function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; width?: number } = {}) {
   const startSession = vi.fn()
+  const selectWorkbench = vi.fn()
   const toggleSidebar = vi.fn()
   let regionOwner: SidebarSectionOwnerProps | undefined
   let settingsOwner: SidebarSettingsOwnerProps | undefined
@@ -33,6 +34,8 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useWorkspaces={neverHook}
       startSession={startSession} toggleSidebar={toggleSidebar} t={t}
+      selectWorkbench={selectWorkbench}
+      useWorkbench={(selector) => selector({ mode: 'qzh' })}
       renderSlot={((
         key: string,
         owner: SidebarFooterActionOwnerProps | SidebarSectionOwnerProps | SidebarSettingsOwnerProps,
@@ -53,6 +56,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
   const view = render(root())
   return {
     startSession,
+    selectWorkbench,
     toggleSidebar,
     regionOwner: () => {
       if (regionOwner === undefined) throw new Error('region owner not rendered')
@@ -83,6 +87,14 @@ describe('SidebarRoot shell', () => {
     expect(b.startSession).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(b.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('exposes the fixed workbench switcher', () => {
+    const b = mountShell()
+    fireEvent.click(screen.getByRole('button', { name: 'General chat' }))
+    expect(b.selectWorkbench).toHaveBeenCalledWith('standard')
+    fireEvent.click(screen.getByRole('button', { name: 'Log analysis' }))
+    expect(b.selectWorkbench).toHaveBeenCalledWith('qzh')
   })
 
   it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {

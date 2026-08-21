@@ -27,6 +27,7 @@ import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, Props
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { WorkbenchSnapshot } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
   SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -84,18 +85,26 @@ export type DirectoryPickingHooks = {
   useDirectoryFlow: SnapshotSelectorHook<boolean>
 }
 
+/** Component-side workbench selector bound from the browser inject face. */
+export type WorkbenchHooks = {
+  /** Select the active QZH or general DSH workbench. */
+  useWorkbench: SnapshotSelectorHook<WorkbenchSnapshot>
+}
+
 /**
  * Browser-private injected share (arrives via the register inject factory).
  * Data reads use the global framework hooks; these are the Host actions the
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
+  /** Current product workbench, bound as useWorkbench. */
+  hooks: DirectoryPickingInjected['hooks'] & { workbench: HostObservable<WorkbenchSnapshot> }
   /**
    * Start a New Session in a Workspace: reuse-or-create its blank session and
    * open it; without an explicit workspace, inherit the current Session
    * Workspace, then the recent Workspace, or clear into the New Session view.
    */
-  startSession: (workspaceId?: WorkspaceId) => void
+  startSession: (workspaceId?: WorkspaceId, agentPreset?: string) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
   /**
@@ -144,6 +153,7 @@ export type WorkspaceBrowserProps =
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & DirectoryPickingHooks
+  & WorkbenchHooks
   & PropsLocale<'workspace'>
 
 /**

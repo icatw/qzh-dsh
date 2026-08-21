@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { realpath, readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -169,9 +170,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
         async execute(_args, exec) {
-          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH current case is available only in a qzh Agent session')
-          const sessionId = exec.agent?.session.header.id
-          if (sessionId === undefined) throw new Error('QZH current case requires an Agent-backed session')
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH current case is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
           return service.currentCaseForTool(sessionId) as unknown as Record<string, JsonValue>
         },
       }))
@@ -186,9 +187,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
         async execute(args, exec) {
-          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH code search is available only in a qzh Agent session')
-          const sessionId = exec.agent?.session.header.id
-          if (sessionId === undefined) throw new Error('QZH code search requires an Agent-backed session')
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH code search is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
           const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
           const result = await service.searchCode(sessionId, record.id, args.repository, args.query, exec.signal)
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
@@ -207,9 +208,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
         async execute(args, exec) {
-          if (exec.agent?.session.header.agentPreset !== 'qzh') throw new Error('QZH code reading is available only in a qzh Agent session')
-          const sessionId = exec.agent?.session.header.id
-          if (sessionId === undefined) throw new Error('QZH code reading requires an Agent-backed session')
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH code reading is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
           const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
           const result = await service.readCode(sessionId, record.id, args.repository, args.path, args.start_line, args.end_line, exec.signal)
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>

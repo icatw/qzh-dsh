@@ -80,6 +80,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+    useWorkbench: hook({ mode: 'standard' }),
     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
     t,
     ...overrides,
@@ -95,6 +96,20 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('filters session rows by the selected workbench', () => {
+    const qzh = summary('qzh-case', 2, { agentPreset: 'qzh' })
+    const standard = summary('standard-chat', 1, { agentPreset: 'standard' })
+    const b = mount({
+      useWorkbench: hook({ mode: 'qzh' }),
+      useSessions: hook(sessionState([qzh, standard])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['qzh-case', 'standard-chat'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.getByText('qzh-case')).toBeTruthy()
+    expect(screen.queryByText('standard-chat')).toBeNull()
+    b.view.unmount()
+  })
+
   it('prunes deleted Workspace view state only after the Workspace baseline is ready', async () => {
     const pending = {
       ...workspaceState([]),
@@ -384,7 +399,7 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))
     expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     expect(screen.getByText('alpha-s')).toBeTruthy()
-    expect(startSession).toHaveBeenCalledWith(wid('alpha'))
+    expect(startSession).toHaveBeenCalledWith(wid('alpha'), 'standard')
   })
 
   it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {

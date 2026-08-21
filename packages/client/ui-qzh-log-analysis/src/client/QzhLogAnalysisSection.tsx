@@ -18,6 +18,7 @@ interface QzhActions {
   readonly setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly renameSession?: (title: string) => Promise<void>
 }
 
 type Props = PropsRuntime<'conversation.hero.empty'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & QzhActions
@@ -32,7 +33,7 @@ function fileEntry(file: File): ImportedLogEntry | undefined {
 }
 
 /** Full blank-state QZH evidence flow. The normal conversation shell owns the frame. */
-export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, actions, createCase, setEvidence, getCase, startAnalysis }: Props) {
+export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, actions, createCase, setEvidence, getCase, startAnalysis, renameSession }: Props) {
   const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
   const state = useStore((value: QzhSessionState) => value)
   const [analysisRunning, setAnalysisRunning] = useState(false)
@@ -106,8 +107,16 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
       actions.setCaseView(saved)
       const started = await startAnalysis(saved.id)
       actions.setCaseView(started)
-      actions.setPanelOpen(false)
-      actions.setStatus('分析已启动，报告会回到当前会话消息流。')
+      actions.setPanelOpen(true)
+      let status = '分析已启动，报告会回到当前会话消息流。'
+      if (renameSession !== undefined) {
+        try {
+          await renameSession('QZH 日志分析')
+        } catch (error) {
+          status = `分析已启动，但会话标题未更新：${error instanceof Error ? error.message : String(error)}`
+        }
+      }
+      actions.setStatus(status)
     } catch (error) {
       actions.setStatus(`提交或启动分析失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {

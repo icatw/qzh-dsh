@@ -46,9 +46,12 @@ export function SidebarRoot({
   width,
   startSession,
   toggleSidebar,
+  selectWorkbench,
+  useWorkbench,
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
+  const workbench = useWorkbench(state => state)
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
@@ -155,6 +158,27 @@ export function SidebarRoot({
           </button>
         </Tooltip>
       </div>
+
+      {wide && (
+        <div className={clsx(css.workbenchSwitch, css.wide)} role="group" aria-label={t('workbench.label')}>
+          <button
+            type="button"
+            className={clsx(css.workbenchOption, workbench.mode === 'qzh' && css.workbenchOptionActive)}
+            aria-pressed={workbench.mode === 'qzh'}
+            onClick={() => { selectWorkbench('qzh') }}
+          >
+            {t('workbench.qzh')}
+          </button>
+          <button
+            type="button"
+            className={clsx(css.workbenchOption, workbench.mode === 'standard' && css.workbenchOptionActive)}
+            aria-pressed={workbench.mode === 'standard'}
+            onClick={() => { selectWorkbench('standard') }}
+          >
+            {t('workbench.standard')}
+          </button>
+        </div>
+      )}
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}
       <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>

@@ -1,8 +1,21 @@
 /** A discovered QZH log file grouped by its service and stream. */
 export interface QzhLogFile {
   path: string
-  component: 'web-agent' | 'log-center' | 'agent' | 'agent-flush' | 'unknown'
+  /** Canonical QZH component when known, otherwise an inferred archive label. */
+  component: string
   stream: 'log' | 'error' | 'unknown'
+}
+
+const GENERIC_DIRECTORY_NAMES = new Set(['data', 'log', 'logs', 'var', 'tmp', 'services'])
+
+/** Infer a human-readable component label from an arbitrary imported path. */
+export function qzhComponentLabel(path: string): string {
+  const segments = path.split('/').filter(Boolean)
+  const parent = segments.at(-2)
+  if (parent !== undefined && !GENERIC_DIRECTORY_NAMES.has(parent.toLowerCase())) return parent
+  const filename = segments.at(-1) ?? path
+  const stem = filename.replace(/\.[^.]+$/, '')
+  return stem === '' ? 'log' : stem
 }
 
 /** Describe supported log-like files from any imported relative layout.
@@ -23,7 +36,7 @@ export function scanQzhLogLayout(paths: readonly string[]): QzhLogFile[] {
             ? 'agent-flush'
             : filename.includes('qzh_agent')
               ? 'agent'
-              : 'unknown'
+              : qzhComponentLabel(path)
       const stream = /(?:^|[-_.])(error|err|stderr)(?:[-_.]|$)/.test(filename) ? 'error' : 'log'
       return { path, component, stream }
     })

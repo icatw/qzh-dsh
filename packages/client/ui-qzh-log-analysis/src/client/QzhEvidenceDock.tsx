@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhCaseView } from '@deepseek-ai/dsh-api-remotes/client'
 import { buildQzhEvidence } from './evidence.ts'
@@ -8,14 +9,39 @@ import css from './QzhLogAnalysisSection.module.css'
 
 interface Injected {
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly renameSession: (title: string) => Promise<void>
 }
 
-type Props = PropsRuntime<'conversation.composer.qzh.dock'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & Injected
+type Props = PropsRuntime<'conversation.details.qzh'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & Injected
 
-/** Compact evidence/progress rail kept in the normal conversation layout. */
-export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, startAnalysis }: Props) {
-  const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
+/** QZH evidence and progress panel rendered in DSH's right details column. */
+export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, startAnalysis, getCase, renameSession }: Props) {
+  const sessionSummary = useSessions(state => state.byId[sessionId])
+  const preset = sessionSummary?.agentPreset
   const state = useStore((value: QzhSessionState) => value)
+  const caseId = state.caseView?.id
+  const caseState = state.caseView?.state
+  useEffect(() => {
+    if (preset !== 'qzh' || caseId === undefined) return
+    if (sessionSummary?.title === undefined) void renameSession('QZH 日志分析')
+    let disposed = false
+    const refreshCase = async (): Promise<void> => {
+      try {
+        const current = await getCase(caseId)
+        if (!disposed) actions.setCaseView(current)
+      } catch (error) {
+        if (!disposed && error instanceof Error && /not found/i.test(error.message)) {
+          actions.setCaseView(undefined)
+          actions.setStatus('Host 中的案例已失效，请重新导入日志摘要。')
+        }
+      }
+    }
+    void refreshCase()
+    if (caseState !== 'analyzing') return () => { disposed = true }
+    const timer = window.setInterval(() => { void refreshCase() }, 1_500)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [actions, caseId, caseState, getCase, preset, renameSession, sessionSummary?.title])
   if (preset !== 'qzh' || state.caseView === undefined || state.entries.length === 0) return null
   const evidence = buildQzhEvidence(state.entries, state.clusters)
   const retry = async (): Promise<void> => {

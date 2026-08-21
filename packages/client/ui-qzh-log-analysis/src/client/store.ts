@@ -3,7 +3,7 @@ import type { QzhCaseView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
 import type { LogErrorCluster } from '../log-parser.ts'
 
-/** JSON-safe state shared by the QZH dock and the session header action. */
+/** JSON-safe state shared by the QZH details panel and the session header action. */
 export interface QzhSessionState {
   entries: ImportedLogEntry[]
   clusters: LogErrorCluster[]

@@ -9,9 +9,10 @@
  * packages/client/AGENTS.md.
  */
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
@@ -19,7 +20,7 @@ import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type {
-  DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
+  DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected, WorkbenchHooks,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
 export type { WorkspaceKey } from './locales.ts'
@@ -42,7 +43,7 @@ const NS = 'workspace'
  * provides a waitable service. apply therefore depends on each slot
  * declaration through `slots.inject()` instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale']
+export const inject = ['slots', 'sessions', 'workspaces', 'workbench', 'locale']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -51,10 +52,12 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const sessions = ctx.get('sessions') as unknown as ISessions
+  const workspaces = ctx.get('workspaces') as unknown as IWorkspaces
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
   const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
-    const result = await ctx.sessions.search(query, signal)
+    const result = await sessions.search(query, signal)
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
@@ -70,39 +73,42 @@ export function apply(ctx: ClientContext): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
-    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
-    open: (sessionId) => { ctx.sessions.open(sessionId) },
+    startSession: (workspaceId, agentPreset) => {
+      if (agentPreset === undefined) workspaces.startSession(workspaceId)
+      else workspaces.startSession(workspaceId, agentPreset)
+    },
+    open: (sessionId) => { sessions.open(sessionId) },
     searchSessions,
-    searchResultLimit: ctx.sessions.searchResultLimit,
+    searchResultLimit: sessions.searchResultLimit,
     renameSession: async (sessionId, title) => {
       // Row → session-face hop: rename is a per-session verb (ISession), not
       // a list-service verb; the binding resolves any listed session.
-      const session = ctx.sessions.binding(sessionId)?.session
+      const session = sessions.binding(sessionId)?.session
       if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
       const result = await session.rename(title)
       if (!result.ok) throw new Error(result.error.message)
     },
     forkSession: (sessionId) => {
-      ctx.sessions.fork({ sessionId, increaseTitle: true })
-        .then((childId) => { ctx.sessions.open(childId) })
+      sessions.fork({ sessionId, increaseTitle: true })
+        .then((childId) => { sessions.open(childId) })
         .catch(() => {
           // Fork or child-rename failure keeps the current selection.
         })
     },
-    renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
-    deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
+    renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
+    deleteWorkspace: async (workspaceId) => { await workspaces.delete(workspaceId) },
     insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
-      await ctx.workspaces.insertBefore(workspaceId, beforeWorkspaceId)
+      await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
-    archiveSession: async (sessionId) => { await ctx.workspaces.archiveSession(sessionId) },
+    archiveSession: async (sessionId) => { await workspaces.archiveSession(sessionId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
-      await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+      await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
-    createWorkspace: input => ctx.workspaces.create(input),
-    hooks: { directoryFlow: browserFlowSource },
+    createWorkspace: input => workspaces.create(input),
+    hooks: { directoryFlow: browserFlowSource, workbench: ctx.workbench.store },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
-    createWorkspace: input => ctx.workspaces.create(input),
+    createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
   // Each registration declares its directory-flow child in the same call;

@@ -295,6 +295,33 @@ describe('WorkspaceRuntime', () => {
     expect(api.callsOf('session.create')).toEqual([])
   })
 
+  it('does not coalesce blank creates across different agent presets', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    api.onList = () => Promise.resolve(ok({ items: [] as never[] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    const qzhGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
+    const standardGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
+    api.onCreate = (payload) => payload.agentPreset === 'qzh' ? qzhGate.promise : standardGate.promise
+    const qzh = workspaces.connectWorkspace(wid('alpha'), 'qzh')
+    const standard = workspaces.connectWorkspace(wid('alpha'), 'standard')
+    await Promise.resolve()
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'alpha', agentPreset: 'qzh' },
+      { workspaceId: 'alpha', agentPreset: 'standard' },
+    ])
+
+    qzhGate.resolve(ok({ sessionId: sid('qzh-new') }))
+    standardGate.resolve(ok({ sessionId: sid('standard-new') }))
+    await expect(qzh).resolves.toBe('qzh-new')
+    await expect(standard).resolves.toBe('standard-new')
+  })
+
   it('returns created Workspaces and preserves Host business errors', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

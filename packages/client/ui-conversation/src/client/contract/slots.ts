@@ -123,6 +123,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
+     * Additive QZH analysis panel rendered by the built-in details shell.
+     * The conversation package owns the right-column frame; QZH contributes
+     * only its session-scoped status and evidence content here.
+     */
+    'conversation.details.qzh': { kind: 'single'; scope: 'session'; owner: QzhDetailsOwnerProps }
+    /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
      * entry; the owner dispatches the {@link ComposerChainProps} currency and
@@ -260,6 +266,9 @@ export interface EmptySessionHeroOwnerProps {}
 
 /** Owner share of a session-specific read-only composer replacement. */
 export interface QzhComposerOwnerProps {}
+
+/** Empty owner share for the QZH right-column analysis panel. */
+export interface QzhDetailsOwnerProps {}
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
@@ -738,7 +747,7 @@ export interface DetailsInjected {
 }
 
 /** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool'>
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool' | 'conversation.details.qzh'>
   & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */

@@ -14,6 +14,9 @@ import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
+import { WorkbenchController } from './workbench.ts'
+
+export type { IWorkbench, WorkbenchMode, WorkbenchSnapshot } from './workbench.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -27,6 +30,8 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     layout: import('./service.ts').ILayout
+    /** The product workbench selector shared by the sidebar and workspace browser. */
+    workbench: import('./workbench.ts').IWorkbench
   }
 }
 
@@ -115,6 +120,8 @@ export const inject = ['slots', 'theme']
  */
 export function apply(ctx: ClientContext): void {
   const layout = new LayoutController()
+  const workbench = new WorkbenchController()
+  ctx.effect(() => ctx.reflect.provide('workbench', workbench), 'ui-layout: workbench service')
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({

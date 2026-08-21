@@ -9,14 +9,14 @@
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
@@ -758,12 +758,31 @@ export function WorkspaceBrowser({
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
+  useWorkbench,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  const workbenchMode = useWorkbench(state => state.mode)
+  const fullSessionList = useSessions(state => state)
+  const visibleSessionList = useMemo(() => {
+    const ids = fullSessionList.ids.filter(id => {
+      const summary = fullSessionList.byId[id]
+      return summary !== undefined && (workbenchMode === 'qzh' ? summary.agentPreset === 'qzh' : summary.agentPreset !== 'qzh')
+    })
+    const byId: Record<SessionId, SessionSummary> = {} as Record<SessionId, SessionSummary>
+    for (const id of ids) {
+      const summary = fullSessionList.byId[id]
+      if (summary !== undefined) byId[id] = summary
+    }
+    return { ...fullSessionList, ids, byId }
+  }, [fullSessionList, workbenchMode])
+  const visibleUseSessions = useCallback(
+    <S,>(selector: (state: SessionListState) => S): S => selector(visibleSessionList),
+    [visibleSessionList],
+  )
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
@@ -1079,7 +1098,7 @@ export function WorkspaceBrowser({
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
-            startSession(workspaceId)
+            startSession(workspaceId, workbenchMode === 'qzh' ? 'qzh' : 'standard')
           }}
           onClose={() => { setWsPickerOpen(false) }}
         />
@@ -1109,7 +1128,7 @@ export function WorkspaceBrowser({
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults
-              useSessions={useSessions}
+              useSessions={visibleUseSessions}
               open={open}
               workspaces={workspaces}
               archivedSessionIds={archivedSessionIds}
@@ -1122,7 +1141,7 @@ export function WorkspaceBrowser({
           : groupBy === 'flat'
             ? (
               <FlatList
-                useSessions={useSessions} open={open} forkSession={forkSession}
+                useSessions={visibleUseSessions} open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
@@ -1135,7 +1154,7 @@ export function WorkspaceBrowser({
             )
             : (
               <SessionTree
-                useSessions={useSessions}
+                useSessions={visibleUseSessions}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
@@ -1147,7 +1166,7 @@ export function WorkspaceBrowser({
                 syncSessionOrderAccount={actions.syncSessionOrderAccount}
                 setSessionOrder={actions.setSessionOrder}
                 archivedSessionIds={archivedSessionIds}
-                startSession={startSession}
+                startSession={(workspaceId) => { startSession(workspaceId, workbenchMode === 'qzh' ? 'qzh' : 'standard') }}
                 open={open}
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
 import { clusterLogErrors, parseLogText } from '../src/log-parser.ts'
 import { decodeZipLogMember, listZipLogEntries } from '../src/log-import.ts'
-import { scanQzhLogLayout } from '../src/log-layout.ts'
+import { qzhComponentLabel, scanQzhLogLayout } from '../src/log-layout.ts'
 
 describe('QZH log parser', () => {
   it('recognizes the server and endpoint layout and clusters repeated errors', () => {
@@ -38,5 +38,16 @@ describe('QZH log parser', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ path: 'services/web/qzh_web_agent.log', source: 'archive', component: 'web-agent' })
     expect(parseLogText(entries[0]!, decodeZipLogMember(bytes, entries[0]!.path))).toHaveLength(1)
+  })
+
+  it('infers a component label for generic logs instead of displaying unknown', () => {
+    expect(scanQzhLogLayout([
+      'services/auth/logs.txt', 'services/qzh-web-system/logs.txt', 'summary.txt',
+    ])).toMatchObject([
+      { path: 'services/auth/logs.txt', component: 'auth' },
+      { path: 'services/qzh-web-system/logs.txt', component: 'qzh-web-system' },
+      { path: 'summary.txt', component: 'summary' },
+    ])
+    expect(qzhComponentLabel('services/auth/logs.txt')).toBe('auth')
   })
 })

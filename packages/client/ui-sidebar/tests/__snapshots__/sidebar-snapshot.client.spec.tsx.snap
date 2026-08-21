@@ -125,6 +125,26 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
         />
       </button>
     </div>
+    <div
+      aria-label="Session type"
+      class="workbenchSwitch wide"
+      role="group"
+    >
+      <button
+        aria-pressed="true"
+        class="workbenchOption workbenchOptionActive"
+        type="button"
+      >
+        Log analysis
+      </button>
+      <button
+        aria-pressed="false"
+        class="workbenchOption"
+        type="button"
+      >
+        General chat
+      </button>
+    </div>
     <button
       aria-label="New session"
       class="newSession"
@@ -216,6 +236,26 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
           width="16"
           xmlns="http://www.w3.org/2000/svg"
         />
+      </button>
+    </div>
+    <div
+      aria-label="会话类型"
+      class="workbenchSwitch wide"
+      role="group"
+    >
+      <button
+        aria-pressed="true"
+        class="workbenchOption workbenchOptionActive"
+        type="button"
+      >
+        日志分析
+      </button>
+      <button
+        aria-pressed="false"
+        class="workbenchOption"
+        type="button"
+      >
+        通用对话
       </button>
     </div>
     <button

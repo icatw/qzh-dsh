@@ -74,12 +74,14 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, ren
   const material = useSession(
     s => (callId === undefined ? null : materialFor(s, callId)),
     (a, b) => shallowEqual(a, b))
+  const qzhPanel = renderSlot('conversation.details.qzh', {})
+  const hasQzhPanel = qzhPanel !== null && qzhPanel !== undefined && qzhPanel !== false
 
   return (
     <div className={css.root}>
       <div className={css.header}>
         <div className={css.title}>
-          {selection === null ? t('details.title') : material?.name ?? selection.toolName ?? t('details.title')}
+          {hasQzhPanel ? 'QZH 分析' : selection === null ? t('details.title') : material?.name ?? selection.toolName ?? t('details.title')}
         </div>
         <button
           type="button" className={css.close} aria-label={t('details.close')}
@@ -91,7 +93,8 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, ren
         </button>
       </div>
       <div className={css.body}>
-        {selection === null || callId === undefined
+        {hasQzhPanel && <div className={css.qzhPanel}>{qzhPanel}</div>}
+        {(!hasQzhPanel || selection !== null) && (selection === null || callId === undefined
           ? <div className={css.empty}>{t('details.empty')}</div>
           : material === null
             ? <div className={css.empty}>{t('details.notInWindow')}</div>
@@ -122,7 +125,8 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, ren
                   </Fragment>
                 </section>
               </>
-            )}
+            )
+        )}
       </div>
     </div>
   )

@@ -192,6 +192,47 @@
   overflow: hidden;
 }
 
+/* Session-type switch sits under the brand, above New Session — a clear
+   product mode choice instead of a cramped dropdown beside the wordmark. */
+.workbenchSwitch {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 0 2px 8px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.workbenchOption {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbenchOption:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.workbenchOptionActive {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-elevated-fill);
+  box-shadow: 0 0 0 1px var(--dsw-alias-border-l2);
+}
+
 .newSession:hover {
   background: var(--dsw-alias-button-floating-hover);
 }

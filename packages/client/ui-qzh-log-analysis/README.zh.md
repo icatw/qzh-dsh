@@ -2,7 +2,11 @@
 
 [English](README.md) | 中文
 
-DSH Web 中的 QZH 内置 Agent preset 浏览器入口。空白 QZH 会话通过 `conversation.hero.empty` 使用专用全宽导入入口，完整工作台不会占用 `conversation.input.dock`；提交后回到 DSH 原生会话布局，并通过 `conversation.composer.qzh` 提供无附件、无命令、无模型切换的文字追问，以及通过 `conversation.composer.qzh.dock` 提供折叠证据状态栏。日志在浏览器本地解析；用户确认的摘要通过 `ctx.remote.qzhLogAnalysis` 按 `sessionId + caseId` 提交。QZH 会话固定标准模型，前端隐藏模型选择器。
+加载 QZH 插件后默认进入 QZH 工作台；左上角切换器和会话列表按 preset 隔离 QZH 与通用 DSH，但两者仍复用同一套 DSH session 和消息框架。
+
+DSH Web 中的 QZH 内置 Agent preset 浏览器入口。空白 QZH 会话通过 `conversation.hero.empty` 使用专用全宽导入入口，完整工作台不会占用 `conversation.input.dock`；提交后回到 DSH 原生会话布局，通过 `conversation.details.qzh` 在右侧详情栏展示只读分析状态、证据摘要和报告，并通过 `conversation.composer.qzh` 提供无附件、无命令、无模型切换的文字追问。日志在浏览器本地解析；用户确认的摘要通过 `ctx.remote.qzhLogAnalysis` 按 `sessionId + caseId` 提交。QZH 会话固定标准模型，前端隐藏模型选择器。
+
+分析状态由右侧面板继续按案例状态轮询 Host，直到报告完成或失败；提交后的当前会话会保留在原 workspace，并在没有用户自定义标题时命名为“QZH 日志分析”。导入文件会按 QZH 文件名、目录名或文件名推断组件标签，无法匹配固定 QZH 文件名时也不会统一显示为 `unknown`。
 
 ## 模型体验
 

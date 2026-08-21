@@ -5,7 +5,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
+import { inject as qzhInject } from '../src/client/index.ts'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
+import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
 import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
 
 afterEach(cleanup)
@@ -54,6 +56,10 @@ function props(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('QZH blank-session analysis surface', () => {
+  it('declares the generated QZH Remote namespace so actions can reach the Host', () => {
+    expect(qzhInject).toContain('remote.qzhLogAnalysis')
+  })
+
   it('renders a compact import Hero instead of an input dock workbench', () => {
     const { props: input } = props()
     render(<QzhLogAnalysisSection {...input} />)
@@ -78,5 +84,18 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.getAllByText(/ERROR qzh failure/).length).toBeGreaterThan(0)
     expect(sent.excerpt).toContain('ERROR qzh failure')
     expect(input.startAnalysis).toHaveBeenCalledWith('case')
+  })
+
+  it('opens the native details column when an active QZH case is present', async () => {
+    const { instance, props: input } = props()
+    instance.actions.setImported([{
+      path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file',
+    }], [])
+    instance.actions.setCaseView({
+      id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'analyzing', createdAt: 1, updatedAt: 1,
+    })
+    const openDetails = vi.fn()
+    render(<QzhSessionHeaderAction {...input} openDetails={openDetails} />)
+    await waitFor(() => expect(openDetails).toHaveBeenCalled())
   })
 })

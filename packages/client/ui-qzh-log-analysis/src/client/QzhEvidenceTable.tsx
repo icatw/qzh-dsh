@@ -1,4 +1,5 @@
 import type { QzhEvidenceFile } from '@deepseek-ai/dsh-api-remotes/client'
+import { qzhComponentLabel } from '../log-layout.ts'
 import css from './QzhLogAnalysisSection.module.css'
 
 interface Props {
@@ -16,7 +17,7 @@ export function QzhEvidenceTable({ files }: Props) {
         {files.map(file => (
           <div className={css.evidenceRow} key={file.path}>
             <span className={css.path}>{file.path}</span>
-            <span>{file.component} · {file.stream} · {file.size} B</span>
+            <span>{file.component === 'unknown' ? qzhComponentLabel(file.path) : file.component} · {file.stream} · {file.size} B</span>
           </div>
         ))}
       </div>

@@ -27,7 +27,7 @@ export interface IWorkspaces {
    * @param workspaceId - explicit target; omitted inherits the current
    * Session's Workspace before falling back to the recency projection.
    */
-  startSession(workspaceId?: WorkspaceId): void
+  startSession(workspaceId?: WorkspaceId, agentPreset?: string): void
   /**
    * Register an existing path as a Workspace.
    * @param input - the Host create payload.
