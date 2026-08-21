@@ -16,7 +16,7 @@ import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 import type {
   QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
-  QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhRepository,
+  QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhRepository,
   QzhAnalysisStartResult,
 } from './types.ts'
 
@@ -75,6 +75,10 @@ function evidencePath(value: string): string {
   return normalized
 }
 
+function ensureCategory(value: QzhLogCategory): QzhLogCategory {
+  return value === 'terminal' ? 'terminal' : 'server'
+}
+
 function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
   const files = evidence.files.slice(0, 500).map(file => {
     const sample = file.sample === undefined ? undefined : redactSensitiveText(file.sample).slice(0, 512)
@@ -82,6 +86,7 @@ function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
       path: evidencePath(file.path),
       component: file.component,
       stream: file.stream,
+      category: ensureCategory(file.category),
       size: Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0,
       ...(sample === undefined || sample.length === 0 ? {} : { sample }),
     }
@@ -89,6 +94,7 @@ function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
   const clusters = evidence.clusters.slice(0, 500).map(cluster => ({
     key: redactSensitiveText(cluster.key).slice(0, 512),
     component: cluster.component,
+    category: ensureCategory(cluster.category),
     severity: cluster.severity,
     count: Number.isSafeInteger(cluster.count) && cluster.count > 0 ? cluster.count : 1,
     ...cluster.firstTimestamp === undefined ? {} : { firstTimestamp: cluster.firstTimestamp },
@@ -326,6 +332,25 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     return { ...this.requireCase(sessionId, id) }
   }
 
+  /** Record the user's verdict on a completed analysis.
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @param kind - `like` or `dislike`.
+   * @param comment - optional free-text note.
+   * @returns updated case view.
+   */
+  @Remote('setFeedback')
+  setFeedback(sessionId: SessionId, id: QzhCaseId, kind: QzhFeedbackKind, comment?: string): QzhCaseView {
+    const record = this.requireCase(sessionId, id)
+    if (kind !== 'like' && kind !== 'dislike') throw new Error('QZH feedback kind must be like or dislike')
+    const trimmed = trimOptional(comment, 2_048)
+    const next: CaseRecord = { ...record, updatedAt: now(), feedback: kind }
+    if (trimmed === undefined) delete next.feedbackComment
+    else next.feedbackComment = trimmed
+    this.cases.set(id, next)
+    return { ...next }
+  }
+
   /** Search one configured mirror with the packaged ripgrep binary.
    * @param sessionId - owning DSH session.
    * @param id - case identifier authorizing the lookup.
@@ -429,6 +454,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       clusters: evidence.clusters.map(cluster => ({
         key: cluster.key,
         component: cluster.component,
+        category: cluster.category,
         severity: cluster.severity,
         count: cluster.count,
         ...(cluster.sample === undefined ? {} : { sample: cluster.sample }),

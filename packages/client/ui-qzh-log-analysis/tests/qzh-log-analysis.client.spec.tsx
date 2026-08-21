@@ -50,6 +50,7 @@ function props(overrides: Partial<Record<string, unknown>> = {}) {
     setEvidence: vi.fn(async (_id: QzhCaseView['id'], _evidence: QzhEvidenceSummary) => ({ ...caseView, state: 'evidence-ready' as const })),
     getCase: vi.fn(async () => caseView),
     startAnalysis: vi.fn(async () => ({ ...caseView, state: 'analyzing' as const })),
+    setFeedback: vi.fn(async (_id: QzhCaseView['id'], kind: 'like' | 'dislike') => ({ ...caseView, state: 'completed' as const, feedback: kind })),
     ...overrides,
   }
   return { instance, props: base }
@@ -64,7 +65,7 @@ describe('QZH blank-session analysis surface', () => {
     const { props: input } = props()
     render(<QzhLogAnalysisSection {...input} />)
     expect(screen.getByRole('heading', { name: '从日志开始定位故障' })).toBeTruthy()
-    expect(screen.getByLabelText('选择日志目录')).toBeTruthy()
+    expect(screen.getAllByLabelText('选择日志目录').length).toBe(2)
     expect(screen.queryByText('SESSION EVIDENCE')).toBeNull()
     expect(screen.queryByText('描述你想要构建的内容')).toBeNull()
   })
@@ -73,7 +74,7 @@ describe('QZH blank-session analysis surface', () => {
     const { props: input } = props()
     const log = new File(['2026-08-21 10:20:30 ERROR qzh failure'], 'qzh_web_agent.log', { type: 'text/plain' })
     render(<QzhLogAnalysisSection {...input} />)
-    fireEvent.change(screen.getByLabelText('选择日志目录'), { target: { files: [log] } })
+    fireEvent.change(screen.getAllByLabelText('选择日志目录')[0]!, { target: { files: [log] } })
     await waitFor(() => expect(screen.getByText('确认分析摘要')).toBeTruthy())
     const consent = screen.getByRole('checkbox')
     fireEvent.click(consent)
@@ -89,7 +90,7 @@ describe('QZH blank-session analysis surface', () => {
   it('opens the native details column when an active QZH case is present', async () => {
     const { instance, props: input } = props()
     instance.actions.setImported([{
-      path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file', sample: '',
+      path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file', sample: '', category: 'server',
     }], [])
     instance.actions.setCaseView({
       id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'analyzing', createdAt: 1, updatedAt: 1,

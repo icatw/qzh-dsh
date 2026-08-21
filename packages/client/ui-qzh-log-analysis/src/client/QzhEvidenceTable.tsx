@@ -22,7 +22,10 @@ export function QzhEvidenceTable({ files }: Props) {
                 <code className={css.evidenceSample} title={file.sample}>{file.sample}</code>
               )}
             </div>
-            <span>{file.component === 'unknown' ? qzhComponentLabel(file.path) : file.component} · {file.stream} · {file.size} B</span>
+            <span>
+              <span className={css.categoryBadge}>{file.category === 'terminal' ? '终端' : '服务端'}</span>{' '}
+              {file.component === 'unknown' ? qzhComponentLabel(file.path) : file.component} · {file.stream} · {file.size} B
+            </span>
           </div>
         ))}
       </div>

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhCaseView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhCaseView, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
 import { QzhEvidencePreview } from './QzhEvidencePreview.tsx'
@@ -10,13 +10,14 @@ import css from './QzhLogAnalysisSection.module.css'
 interface Injected {
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
 }
 
 type Props = PropsRuntime<'conversation.details.qzh'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & Injected
 
 /** QZH evidence and progress panel rendered in DSH's right details column. */
-export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, startAnalysis, getCase, renameSession }: Props) {
+export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, startAnalysis, getCase, setFeedback, renameSession }: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
   const state = useStore((value: QzhSessionState) => value)
@@ -49,7 +50,12 @@ export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, sta
     const started = await startAnalysis(state.caseView.id)
     actions.setCaseView(started)
   }
+  const submitFeedback = async (kind: QzhFeedbackKind, comment?: string): Promise<void> => {
+    if (state.caseView === undefined) return
+    const updated = await setFeedback(state.caseView.id, kind, comment)
+    actions.setCaseView(updated)
+  }
   return state.panelOpen
-    ? <div className={css.dockExpanded}><QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} /><QzhEvidencePreview evidence={evidence} /></div>
+    ? <div className={css.dockExpanded}><QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} /><QzhEvidencePreview evidence={evidence} /></div>
     : <div className={css.dockCollapsed} role="status"><span>QZH 只读分析 · {state.caseView.state} · {state.entries.length} 个日志文件</span><button type="button" onClick={() => { actions.setPanelOpen(true) }}>查看证据</button></div>
 }

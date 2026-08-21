@@ -29,9 +29,9 @@ describe('QzhLogAnalysisService', () => {
 
     const saved = service.setEvidence(sessionId, created.id, {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
-      files: [{ path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 12 }],
+      files: [{ path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', category: 'server', size: 12 }],
       clusters: [{
-        key: 'authorization=secret-value', component: 'web-agent', severity: 'error', count: 1,
+        key: 'authorization=secret-value', component: 'web-agent', category: 'server', severity: 'error', count: 1,
         sample: 'Authorization: Bearer secret-value',
       }],
       excerpt: 'cookie=session-secret',
@@ -55,7 +55,7 @@ describe('QzhLogAnalysisService', () => {
     const created = service.createCase(sessionId, {})
     const saved = service.setEvidence(sessionId, created.id, {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
-      files: [{ path: 'services/web/runtime.log', component: 'unknown', stream: 'log', size: 8 }],
+      files: [{ path: 'services/web/runtime.log', component: 'unknown', stream: 'log', category: 'server', size: 8 }],
       clusters: [],
     })
     expect(saved.evidence?.files[0]?.path).toBe('services/web/runtime.log')
@@ -81,19 +81,36 @@ describe('QzhLogAnalysisService', () => {
         path: 'customer-a/bundle/logs/runtime.log',
         component: 'unknown',
         stream: 'log',
+        category: 'terminal',
         size: 64,
         sample: '2026-08-21 10:00:00 ERROR Authorization: Bearer secret-value',
       }],
-      clusters: [{ key: 'boom', component: 'unknown', severity: 'error', count: 1, sample: 'ERROR boom' }],
+      clusters: [{ key: 'boom', component: 'unknown', category: 'terminal', severity: 'error', count: 1, sample: 'ERROR boom' }],
     })
     const sample = saved.evidence?.files[0]?.sample
     expect(sample).toContain('[REDACTED]')
     expect(sample).not.toContain('secret-value')
+    expect(saved.evidence?.files[0]?.category).toBe('terminal')
     const toolApi = service as unknown as {
       evidenceForTool: (record: { id: unknown; evidence?: unknown }) => Record<string, unknown>
     }
-    const listed = toolApi.evidenceForTool(saved) as { files: Array<{ path: string; sample?: string }> }
-    expect(listed.files[0]).toMatchObject({ path: 'customer-a/bundle/logs/runtime.log', component: 'unknown' })
+    const listed = toolApi.evidenceForTool(saved) as { files: Array<{ path: string; category?: string; sample?: string }> }
+    expect(listed.files[0]).toMatchObject({ path: 'customer-a/bundle/logs/runtime.log', component: 'unknown', category: 'terminal' })
     expect(listed.files[0]?.sample).toContain('[REDACTED]')
+  })
+
+  it('records and validates the user feedback on a completed case', () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    const service = new QzhLogAnalysisService(ctx, { mirrorRoot: '/tmp/qzh-mirror' })
+    const sessionId = 'session-feedback' as SessionId
+    const created = service.createCase(sessionId, {})
+    expect(() => service.setFeedback(sessionId, created.id, 'maybe' as never)).toThrow('like or dislike')
+    const liked = service.setFeedback(sessionId, created.id, 'like', '  结论准确  ')
+    expect(liked.feedback).toBe('like')
+    expect(liked.feedbackComment).toBe('结论准确')
+    const disliked = service.setFeedback(sessionId, created.id, 'dislike')
+    expect(disliked.feedback).toBe('dislike')
+    expect(disliked.feedbackComment).toBeUndefined()
   })
 })

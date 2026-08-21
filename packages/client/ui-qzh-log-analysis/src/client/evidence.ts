@@ -20,11 +20,13 @@ export function buildQzhEvidence(
       component: entry.component,
       stream: entry.stream,
       size: entry.size,
+      category: entry.category,
       ...(entry.sample === '' ? {} : { sample: entry.sample }),
     })),
     clusters: visibleClusters.map(cluster => ({
       key: cluster.key,
       component: cluster.component,
+      category: cluster.category,
       severity: cluster.severity,
       count: cluster.count,
       ...(cluster.firstTimestamp === undefined ? {} : { firstTimestamp: cluster.firstTimestamp }),

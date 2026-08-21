@@ -1,5 +1,5 @@
 import { unzipSync } from 'fflate/browser'
-import { scanQzhLogLayout, type QzhLogFile } from './log-layout.ts'
+import { scanQzhLogLayout, type QzhLogCategory, type QzhLogFile } from './log-layout.ts'
 
 /** A file discovered from a directory or ZIP archive. */
 export interface ImportedLogEntry extends QzhLogFile {
@@ -7,6 +7,8 @@ export interface ImportedLogEntry extends QzhLogFile {
   source: 'file' | 'archive'
   /** Bounded first-line sample the browser read locally; lets the Agent judge the real layout. */
   sample: string
+  /** Field side the file was imported under. */
+  category: QzhLogCategory
 }
 
 /** Maximum text read from one log file during the local preview. */
@@ -43,9 +45,10 @@ export function normalizeImportPath(path: string): string {
 
 /** List supported log entries from a ZIP payload without writing to disk.
  * @param bytes - ZIP archive bytes.
+ * @param category - field side the archive was imported under.
  * @returns log-like entries discovered from archive extensions and content.
  */
-export function listZipLogEntries(bytes: Uint8Array): ImportedLogEntry[] {
+export function listZipLogEntries(bytes: Uint8Array, category: QzhLogCategory): ImportedLogEntry[] {
   const archive = unzipSync(bytes)
   const paths = Object.keys(archive).filter(path => isLikelyLogMember(path, archive[path]))
   const samples: Record<string, string> = {}
@@ -61,6 +64,7 @@ export function listZipLogEntries(bytes: Uint8Array): ImportedLogEntry[] {
     size: archive[file.path]?.byteLength ?? 0,
     source: 'archive' as const,
     sample: samples[file.path] ?? '',
+    category,
   }))
 }
 

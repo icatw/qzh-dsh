@@ -16,7 +16,7 @@ export function QzhClusterTable({ clusters }: Props) {
         {clusters.map(cluster => (
           <div className={css.clusterRow} key={cluster.key}>
             <div>
-              <strong>{cluster.component} · {cluster.severity}</strong>
+              <strong><span className={css.categoryBadge}>{cluster.category === 'terminal' ? '终端' : '服务端'}</span> {cluster.component} · {cluster.severity}</strong>
               <span>{cluster.key}</span>
               {cluster.sample !== undefined && <code>{cluster.sample}</code>}
             </div>

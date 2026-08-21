@@ -8,12 +8,13 @@ describe('QZH log parser', () => {
   it('recognizes the server and endpoint layout and clusters repeated errors', () => {
     const [file] = scanQzhLogLayout(['data/logs/qzh_web_agent_error.log'])
     expect(file).toMatchObject({ component: 'web-agent', stream: 'error' })
-    const events = parseLogText(file!, '[2026-08-21 10:00:00.123] ERROR request 123 failed\n[2026-08-21 10:01:00.123] ERROR request 456 failed')
+    const events = parseLogText(file!, '[2026-08-21 10:00:00.123] ERROR request 123 failed\n[2026-08-21 10:01:00.123] ERROR request 456 failed', 'server')
     expect(events).toHaveLength(2)
     expect(events[0]?.timestamp).toBeDefined()
+    expect(events[0]?.category).toBe('server')
     const clusters = clusterLogErrors(events)
     expect(clusters).toHaveLength(1)
-    expect(clusters[0]).toMatchObject({ severity: 'error', count: 2 })
+    expect(clusters[0]).toMatchObject({ severity: 'error', count: 2, category: 'server' })
   })
 
   it('discovers log members without requiring a fixed archive directory', () => {
@@ -22,9 +23,9 @@ describe('QZH log parser', () => {
       'data/config.yaml': strToU8('not a log'),
       'metadata/summary.txt': strToU8('generated summary'),
     })
-    const entries = listZipLogEntries(bytes)
+    const entries = listZipLogEntries(bytes, 'terminal')
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ path: 'runtime/server/qzh_agent.log', source: 'archive', component: 'agent' })
+    expect(entries[0]).toMatchObject({ path: 'runtime/server/qzh_agent.log', source: 'archive', component: 'agent', category: 'terminal' })
     expect(decodeZipLogMember(bytes, entries[0]!.path)).toContain('flush failed')
   })
 
@@ -34,10 +35,10 @@ describe('QZH log parser', () => {
       'manifest.json': strToU8('{}'),
       'summary.txt': strToU8('not a log'),
     })
-    const entries = listZipLogEntries(bytes)
+    const entries = listZipLogEntries(bytes, 'server')
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ path: 'services/web/qzh_web_agent.log', source: 'archive', component: 'web-agent' })
-    expect(parseLogText(entries[0]!, decodeZipLogMember(bytes, entries[0]!.path))).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ path: 'services/web/qzh_web_agent.log', source: 'archive', component: 'web-agent', category: 'server' })
+    expect(parseLogText(entries[0]!, decodeZipLogMember(bytes, entries[0]!.path), 'server')).toHaveLength(1)
   })
 
   it('infers a component label for generic logs instead of displaying unknown', () => {
@@ -100,8 +101,17 @@ describe('QZH log parser', () => {
       ),
       'data/config.yaml': strToU8('not a log'),
     })
-    const [entry] = listZipLogEntries(bytes)
+    const [entry] = listZipLogEntries(bytes, 'terminal')
     expect(entry?.sample).toContain('ERROR flush failed')
     expect(entry?.sample).not.toContain('WARN slow tail')
+  })
+
+  it('splits clusters by field side so the same error stays separate per category', () => {
+    const [file] = scanQzhLogLayout(['logs/qzh_web_agent.log'])
+    const serverEvents = parseLogText(file!, '2026-08-21 10:00:00 ERROR request failed', 'server')
+    const terminalEvents = parseLogText(file!, '2026-08-21 10:00:00 ERROR request failed', 'terminal')
+    const clusters = clusterLogErrors([...serverEvents, ...terminalEvents])
+    expect(clusters).toHaveLength(2)
+    expect(clusters.map(cluster => cluster.category).sort()).toEqual(['server', 'terminal'])
   })
 })

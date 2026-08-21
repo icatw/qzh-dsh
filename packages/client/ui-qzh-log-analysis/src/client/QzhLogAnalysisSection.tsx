@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
 import { decodeZipLogMember, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
-import { scanQzhLogLayout } from '../log-layout.ts'
+import { scanQzhLogLayout, type QzhLogCategory } from '../log-layout.ts'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
 import { QzhConsentPanel } from './QzhConsentPanel.tsx'
@@ -18,22 +18,23 @@ interface QzhActions {
   readonly setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession?: (title: string) => Promise<void>
 }
 
 type Props = PropsRuntime<'conversation.hero.empty'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & QzhActions
 const MAX_FILES = 30
 
-function fileEntry(file: File, preview: string): ImportedLogEntry | undefined {
+function fileEntry(file: File, preview: string, category: QzhLogCategory): ImportedLogEntry | undefined {
   if (!/\.(log|txt|out)$/i.test(file.name)) return undefined
   const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath
   const rawPath = normalizeImportPath(relativePath || file.name)
   const [layout] = scanQzhLogLayout([rawPath], { [rawPath]: preview })
-  return layout === undefined ? undefined : { ...layout, size: file.size, source: 'file', sample: logSample(preview) }
+  return layout === undefined ? undefined : { ...layout, size: file.size, source: 'file', sample: logSample(preview), category }
 }
 
 /** Full blank-state QZH evidence flow. The normal conversation shell owns the frame. */
-export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, actions, createCase, setEvidence, getCase, startAnalysis, renameSession }: Props) {
+export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, actions, createCase, setEvidence, getCase, startAnalysis, setFeedback, renameSession }: Props) {
   const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
   const state = useStore((value: QzhSessionState) => value)
   const [analysisRunning, setAnalysisRunning] = useState(false)
@@ -62,7 +63,7 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
 
   if (preset !== 'qzh') return null
 
-  const onFiles = async (files: FileList | null): Promise<void> => {
+  const onFiles = async (category: QzhLogCategory, files: FileList | null): Promise<void> => {
     if (files === null || files.length === 0) return
     actions.setStatus('正在本地解析日志摘要…')
     try {
@@ -71,16 +72,16 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
       for (const file of [...files].slice(0, MAX_FILES)) {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const bytes = new Uint8Array(await file.arrayBuffer())
-          const archiveEntries = listZipLogEntries(bytes)
+          const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
-          for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path)))
+          for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
           continue
         }
         const preview = await file.slice(0, MAX_PREVIEW_BYTES).text()
-        const entry = fileEntry(file, preview)
+        const entry = fileEntry(file, preview, category)
         if (entry === undefined) continue
         entries.push(entry)
-        events.push(...parseLogText(entry, preview))
+        events.push(...parseLogText(entry, preview, category))
       }
       const clusters = clusterLogErrors(events)
       actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)), clusters)
@@ -140,9 +141,19 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
     }
   }
 
+  const submitFeedback = async (kind: QzhFeedbackKind, comment?: string): Promise<void> => {
+    if (state.caseView === undefined) return
+    try {
+      const updated = await setFeedback(state.caseView.id, kind, comment)
+      actions.setCaseView(updated)
+    } catch (error) {
+      actions.setStatus(`反馈提交失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   return (
     <section className={css.surface} aria-label="QZH 日志分析入口">
-      <QzhImportHero entries={state.entries} clusters={state.clusters} onFiles={files => { void onFiles(files) }} status={state.status} />
+      <QzhImportHero entries={state.entries} clusters={state.clusters} onFiles={(category, files) => { void onFiles(category, files) }} status={state.status} />
       {evidence !== undefined && state.caseView === undefined && (
         <div className={css.flowBody}>
           <QzhEvidencePreview evidence={evidence} />
@@ -163,7 +174,7 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
       )}
       {state.caseView !== undefined && (
         <div className={css.flowBody}>
-          <QzhAnalysisStatus caseView={state.caseView} running={analysisRunning} onStart={() => { void retryAnalysis() }} />
+          <QzhAnalysisStatus caseView={state.caseView} running={analysisRunning} onStart={() => { void retryAnalysis() }} onFeedback={submitFeedback} />
           {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
         </div>
       )}

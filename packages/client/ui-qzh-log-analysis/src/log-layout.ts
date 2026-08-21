@@ -6,6 +6,9 @@ export interface QzhLogFile {
   stream: 'log' | 'error' | 'unknown'
 }
 
+/** Which field side a log bundle came from. */
+export type QzhLogCategory = 'server' | 'terminal'
+
 /** One data-driven rule mapping a QZH service filename fragment to a component. */
 export interface QzhComponentRule {
   /** Lowercased filename fragment that identifies the service. */

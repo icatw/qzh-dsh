@@ -1,10 +1,11 @@
-import type { QzhLogFile } from './log-layout.ts'
+import type { QzhLogCategory, QzhLogFile } from './log-layout.ts'
 
 /** One timestamped line extracted from a QZH log. */
 export interface ParsedLogEvent {
   path: string
   component: QzhLogFile['component']
   stream: QzhLogFile['stream']
+  category: QzhLogCategory
   lineNumber: number
   timestamp: number | undefined
   severity: 'error' | 'warn' | 'info' | 'unknown'
@@ -15,6 +16,7 @@ export interface ParsedLogEvent {
 export interface LogErrorCluster {
   key: string
   component: QzhLogFile['component']
+  category: QzhLogCategory
   severity: 'error' | 'warn' | 'unknown'
   count: number
   firstTimestamp: number | undefined
@@ -46,9 +48,10 @@ function severityOf(line: string): ParsedLogEvent['severity'] {
 /** Parse one bounded text preview into timestamped error and warning events.
  * @param file - discovered file descriptor.
  * @param text - bounded UTF-8 preview.
+ * @param category - field side the file was imported under.
  * @returns extracted error, warning, and error-stream events.
  */
-export function parseLogText(file: QzhLogFile, text: string): ParsedLogEvent[] {
+export function parseLogText(file: QzhLogFile, text: string, category: QzhLogCategory): ParsedLogEvent[] {
   return text.split(/\r?\n/).flatMap((line, index) => {
     if (line.trim() === '') return []
     const severity = severityOf(line)
@@ -57,6 +60,7 @@ export function parseLogText(file: QzhLogFile, text: string): ParsedLogEvent[] {
       path: file.path,
       component: file.component,
       stream: file.stream,
+      category,
       lineNumber: index + 1,
       timestamp: parseLogTimestamp(line),
       severity,
@@ -82,11 +86,11 @@ export function clusterLogErrors(events: readonly ParsedLogEvent[]): LogErrorClu
   const clusters = new Map<string, LogErrorCluster>()
   for (const event of events) {
     if (event.severity !== 'error' && event.severity !== 'warn' && event.severity !== 'unknown') continue
-    const key = `${event.component}:${event.severity}:${fingerprint(event.message)}`
+    const key = `${event.category}:${event.component}:${event.severity}:${fingerprint(event.message)}`
     const existing = clusters.get(key)
     if (existing === undefined) {
       clusters.set(key, {
-        key, component: event.component, severity: event.severity, count: 1,
+        key, component: event.component, category: event.category, severity: event.severity, count: 1,
         firstTimestamp: event.timestamp, lastTimestamp: event.timestamp,
         samples: [event.message.slice(0, 240)],
       })

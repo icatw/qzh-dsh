@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhComposer } from './QzhComposer.tsx'
 import { QzhEvidenceDock } from './QzhEvidenceDock.tsx'
 import { QzhLogAnalysisSection } from './QzhLogAnalysisSection.tsx'
@@ -42,6 +42,7 @@ export function apply(ctx: ClientContext): void {
     setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setEvidence(sessionId, id, evidence)),
     getCase: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.getCase(sessionId, id)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
+    setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setFeedback(sessionId, id, kind, comment)),
     renameSession: async (title: string): Promise<void> => {
       const summary = sessions.list.getSnapshot().byId[sessionId]
       if (summary?.title !== undefined) return
@@ -75,6 +76,7 @@ export function apply(ctx: ClientContext): void {
     inject: (sessionId) => ({
       startAnalysis: actions(sessionId).startAnalysis,
       getCase: actions(sessionId).getCase,
+      setFeedback: actions(sessionId).setFeedback,
       renameSession: actions(sessionId).renameSession,
     }),
   }, QzhEvidenceDock))

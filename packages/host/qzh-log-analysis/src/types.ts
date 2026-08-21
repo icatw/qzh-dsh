@@ -7,6 +7,12 @@ export type QzhCaseId = Branded<'QzhCaseId'>
 /** The service-side QZH checkout used by the first analysis slice. */
 export type QzhRepository = 'server'
 
+/** Which field side a log bundle came from. */
+export type QzhLogCategory = 'server' | 'terminal'
+
+/** A user verdict on one completed analysis. */
+export type QzhFeedbackKind = 'like' | 'dislike'
+
 /** Lifecycle of one case in the first Host API slice. */
 export type QzhCaseState = 'draft' | 'evidence-ready' | 'analyzing' | 'completed' | 'failed'
 
@@ -22,6 +28,7 @@ export interface QzhEvidenceFile {
   readonly path: string
   readonly component: string
   readonly stream: string
+  readonly category: QzhLogCategory
   readonly size: number
   /** Bounded first-line layout sample submitted with the evidence. */
   readonly sample?: string
@@ -31,6 +38,7 @@ export interface QzhEvidenceFile {
 export interface QzhEvidenceCluster {
   readonly key: string
   readonly component: string
+  readonly category: QzhLogCategory
   readonly severity: string
   readonly count: number
   readonly firstTimestamp?: number
@@ -70,6 +78,10 @@ export interface QzhCaseView {
   readonly report?: string
   /** Stable failure detail when the DSH analysis turn cannot complete. */
   readonly analysisError?: string
+  /** User verdict on the completed report. */
+  readonly feedback?: QzhFeedbackKind
+  /** Optional free-text note attached to the feedback. */
+  readonly feedbackComment?: string
 }
 
 /** Result returned when a QZH analysis turn is admitted to the DSH Agent Loop. */
