@@ -277,14 +277,14 @@ describe('QzhLogAnalysisService evidence archive', () => {
   it('stores an uploaded archive and serves list/search/read from the extracted tree', async () => {
     const { service, sessionId, caseId } = await evidenceHarness()
     const saved = await service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'bundle.zip',
+      filename: 'bundle.zip', category: 'server',
       contentBase64: zipOf({
-        'server/logs/app.log': [
+        'logs/app.log': [
           '2026-08-21 10:00:00 INFO start',
           '2026-08-21 10:00:01 ERROR boom secret=abc',
           '2026-08-21 10:00:02 INFO end',
         ].join('\n'),
-        'worker/w.out': 'worker line',
+        'w.out': 'worker line',
       }),
     })
     expect(saved.state).toBe('evidence-ready')
@@ -294,21 +294,20 @@ describe('QzhLogAnalysisService evidence archive', () => {
     expect(tree.totalFiles).toBe(2)
     const paths = tree.files.map(file => file.path)
     expect(paths).toContain('server/logs/app.log')
-    expect(paths).toContain('worker/w.out')
+    expect(paths).toContain('server/w.out')
     const appLog = tree.files.find(file => file.path === 'server/logs/app.log')
     expect(appLog?.sample).toContain('INFO start')
 
     // The UI projection carries the uploaded bundle's display metadata.
     const view = await service.getEvidenceTree(sessionId, caseId)
     expect(view.summaryOnly).toBe(false)
-    expect(view.archive).toMatchObject({ filename: 'bundle.zip' })
-    expect(view.archive?.size).toBeGreaterThan(0)
+    expect(view.archives).toEqual([{ category: 'server', filename: 'bundle.zip', size: expect.any(Number) }])
 
     const hits = await service.searchEvidence(sessionId, caseId, 'ERROR', undefined, 100)
     expect(hits.matches).toEqual([
       { path: 'server/logs/app.log', line: 2, excerpt: '2026-08-21 10:00:01 ERROR boom [REDACTED]' },
     ])
-    const filtered = await service.searchEvidence(sessionId, caseId, 'worker', 'worker', 100)
+    const filtered = await service.searchEvidence(sessionId, caseId, 'worker', 'server/w', 100)
     expect(filtered.matches).toHaveLength(1)
 
     const read = await service.readEvidenceRange(sessionId, caseId, 'server/logs/app.log', 2, 2)
@@ -322,7 +321,7 @@ describe('QzhLogAnalysisService evidence archive', () => {
     const upload = zipOf({ 'a.log': 'content' })
     const other = 'session-other' as SessionId
     await expect(service.uploadEvidenceArchive(other, caseId, {
-      filename: 'b.zip', contentBase64: upload,
+      filename: 'b.zip', category: 'server', contentBase64: upload,
     })).rejects.toThrow('does not belong to session')
     await expect(service.listEvidenceTree(other, caseId)).rejects.toThrow('does not belong to session')
     expect(sessionId).not.toBe(other)
@@ -331,11 +330,11 @@ describe('QzhLogAnalysisService evidence archive', () => {
   it('rejects a non-zip payload and a traversal entry', async () => {
     const { service, sessionId, caseId } = await evidenceHarness()
     await expect(service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'not.zip', contentBase64: Buffer.from('not a zip').toString('base64'),
+      filename: 'not.zip', category: 'server', contentBase64: Buffer.from('not a zip').toString('base64'),
     })).rejects.toThrow('must be a zip')
 
     await expect(service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'evil.zip', contentBase64: zipOf({ '../escape.log': 'bad' }),
+      filename: 'evil.zip', category: 'server', contentBase64: zipOf({ '../escape.log': 'bad' }),
     })).rejects.toThrow('invalid')
   })
 
@@ -344,10 +343,10 @@ describe('QzhLogAnalysisService evidence archive', () => {
     await expect(service.listEvidenceTree(sessionId, caseId)).rejects.toThrow('summary-only')
 
     const upload = zipOf({ 'a.log': 'one' })
-    await service.uploadEvidenceArchive(sessionId, caseId, { filename: 'a.zip', contentBase64: upload })
+    await service.uploadEvidenceArchive(sessionId, caseId, { filename: 'a.zip', category: 'server', contentBase64: upload })
     await expect(service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'b.zip', contentBase64: zipOf({ 'b.log': 'two' }),
-    })).rejects.toThrow('already has extracted evidence')
+      filename: 'b.zip', category: 'server', contentBase64: zipOf({ 'b.log': 'two' }),
+    })).rejects.toThrow('already has server evidence')
     await expect(service.readEvidenceRange(sessionId, caseId, 'missing.log', undefined, undefined))
       .rejects.toThrow('not found')
   })
@@ -357,13 +356,13 @@ describe('QzhLogAnalysisService evidence archive', () => {
     const lines: string[] = []
     for (let index = 1; index <= 50; index += 1) lines.push(`line ${index} marker`)
     await service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'big.zip', contentBase64: zipOf({ 'big.log': lines.join('\n') }),
+      filename: 'big.zip', category: 'server', contentBase64: zipOf({ 'big.log': lines.join('\n') }),
     })
     const capped = await service.searchEvidence(sessionId, caseId, 'marker', undefined, 10)
     expect(capped.matches).toHaveLength(10)
     expect(capped.truncated).toBe(true)
 
-    const read = await service.readEvidenceRange(sessionId, caseId, 'big.log', 1, 500)
+    const read = await service.readEvidenceRange(sessionId, caseId, 'server/big.log', 1, 500)
     expect(read.endLine).toBe(50)
     expect(read.text.split('\n')).toHaveLength(50)
   })
@@ -382,7 +381,7 @@ describe('QzhLogAnalysisService evidence archive', () => {
     expect(before.files[0]?.sample).toBe('INFO x')
 
     await service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'b.zip', contentBase64: zipOf({ 'server/logs/a.log': 'INFO x\nERROR boom' }),
+      filename: 'b.zip', category: 'server', contentBase64: zipOf({ 'server/logs/a.log': 'INFO x\nERROR boom' }),
     })
     const after = await service.getEvidenceTree(sessionId, caseId)
     expect(after.files[0]?.sample).toContain('INFO x')

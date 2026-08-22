@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhCaseView, QzhFeedbackKind, QzhLogListResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhArchiveDownload, QzhCaseView, QzhFeedbackKind, QzhLogCategory, QzhLogListResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
@@ -11,7 +11,9 @@ import css from './QzhLogAnalysisSection.module.css'
 interface Injected {
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly getActiveCase: () => Promise<QzhCaseView | undefined>
   readonly getEvidenceTree: (id: QzhCaseView['id']) => Promise<QzhLogListResult>
+  readonly downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory) => Promise<QzhArchiveDownload | undefined>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
 }
@@ -20,7 +22,7 @@ type Props = PropsRuntime<'conversation.details.qzh'> & PropsStore<ReturnType<ty
 
 /** QZH evidence and progress panel rendered in DSH's right details column. */
 export function QzhEvidenceDock({
-  sessionId, useSessions, useStore, actions, startAnalysis, getCase, getEvidenceTree, setFeedback, renameSession,
+  sessionId, useSessions, useStore, actions, startAnalysis, getCase, getActiveCase, getEvidenceTree, downloadEvidenceArchive, setFeedback, renameSession,
 }: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
@@ -28,6 +30,18 @@ export function QzhEvidenceDock({
   const caseId = state.caseView?.id
   const caseState = state.caseView?.state
   const [tree, setTree] = useState<QzhLogListResult | undefined>()
+  useEffect(() => {
+    if (preset !== 'qzh') return
+    let disposed = false
+    // Restore the session's latest case after a reload: the store is
+    // in-memory, so a reopened QZH session must re-fetch its case before it
+    // can show evidence or the report.
+    void getActiveCase().then(restored => {
+      if (disposed || restored === undefined || state.caseView !== undefined) return
+      actions.setCaseView(restored)
+    }).catch(() => {})
+    return () => { disposed = true }
+  }, [actions, getActiveCase, preset, state.caseView])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
     let disposed = false
@@ -58,8 +72,6 @@ export function QzhEvidenceDock({
     const timer = window.setInterval(() => { void refreshCase() }, 1_500)
     return () => { disposed = true; window.clearInterval(timer) }
   }, [actions, caseId, caseState, getCase, preset, renameSession, sessionSummary?.title])
-  if (preset !== 'qzh' || state.caseView === undefined || state.entries.length === 0) return null
-  const evidence = buildQzhEvidence(state.entries, state.clusters)
   const retry = async (): Promise<void> => {
     if (state.caseView === undefined) return
     const started = await startAnalysis(state.caseView.id)
@@ -74,14 +86,56 @@ export function QzhEvidenceDock({
       actions.setStatus(`反馈提交失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
+  if (preset !== 'qzh') return null
+  if (state.caseView === undefined) {
+    return (
+      <div className={css.dockExpanded}>
+        <p className={css.muted}>QZH 日志分析：导入日志摘要并确认后，这里会展示证据与报告。</p>
+      </div>
+    )
+  }
+  if (state.entries.length === 0 && state.caseView.report === undefined) {
+    return (
+      <div className={css.dockExpanded}>
+        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
+        <p className={css.muted}>摘要已提交，完整证据树随分析进度加载。</p>
+      </div>
+    )
+  }
+  const evidence = state.entries.length === 0 ? undefined : buildQzhEvidence(state.entries, state.clusters)
+  const downloadArchive = async (category: QzhLogCategory): Promise<void> => {
+    if (state.caseView === undefined) return
+    const archive = await downloadEvidenceArchive(state.caseView.id, category)
+    if (archive === undefined) {
+      throw new Error('该案例没有已上传的完整日志包')
+    }
+    // Decode the base64 payload and save it under the original upload name.
+    const bytes = atob(archive.contentBase64)
+    const buffer = new Uint8Array(bytes.length)
+    for (let index = 0; index < bytes.length; index += 1) buffer[index] = bytes.charCodeAt(index)
+    const blob = new Blob([buffer], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = archive.filename
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
   return state.panelOpen
     ? (
       <div className={css.dockExpanded}>
         <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
         {tree !== undefined && (
-          <QzhEvidenceFiles files={tree.files} clusters={tree.clusters} archive={tree.archive} summaryOnly={tree.summaryOnly === true} />
+          <QzhEvidenceFiles
+            files={tree.files}
+            clusters={tree.clusters}
+            archives={tree.archives ?? []}
+            summaryOnly={tree.summaryOnly === true}
+            caseId={state.caseView.id}
+            onDownloadArchive={downloadArchive}
+          />
         )}
-        <QzhEvidencePreview evidence={evidence} />
+        {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
       </div>
     )
     : <div className={css.dockCollapsed} role="status"><span>QZH 只读分析 · {state.caseView.state} · {state.entries.length} 个日志文件</span><button type="button" onClick={() => { actions.setPanelOpen(true) }}>查看证据</button></div>

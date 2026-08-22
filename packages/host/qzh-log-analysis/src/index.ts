@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 import type {
-  QzhArchiveUpload, QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
+  QzhArchiveDownload, QzhArchiveInfo, QzhArchiveUpload, QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
   QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhEvidenceTreeFile, QzhFeedbackKind,
   QzhLogCategory, QzhLogListResult, QzhLogMatch, QzhLogReadResult, QzhLogSearchResult, QzhRepository,
   QzhAnalysisStartResult,
@@ -465,6 +465,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async uploadEvidenceArchive(sessionId: SessionId, id: QzhCaseId, upload: QzhArchiveUpload): Promise<QzhCaseView> {
     await this.casesUnit()
     this.requireCase(sessionId, id)
+    const category = ensureCategory(upload.category)
     const content = decodeArchiveContent(upload.contentBase64)
     if (Buffer.byteLength(content) > this.maxEvidenceArchiveBytes) {
       throw new Error(`QZH evidence archive exceeds ${String(this.maxEvidenceArchiveBytes)} bytes`)
@@ -473,7 +474,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       throw new Error('QZH evidence archive must be a zip file')
     }
     const caseDir = join(this.evidenceRoot, String(id))
-    const filesDir = join(caseDir, EVIDENCE_DIR_NAME)
+    // One extracted tree per field side: `files/<category>/` keeps the
+    // server and terminal bundles apart while both serve the same case.
+    const filesDir = join(caseDir, EVIDENCE_DIR_NAME, category)
     const staging = join(this.evidenceRoot, `${String(id)}.staging-${randomUUID()}`)
     try {
       // `unzipSync` yields raw file bytes per entry; directory/symlink entries
@@ -502,22 +505,25 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       // The staging tree is fully written before any publication step: a
       // failure anywhere above leaves the durable case evidence untouched.
       await mkdir(this.evidenceRoot, { recursive: true, mode: 0o700 })
-      await mkdir(caseDir, { recursive: true, mode: 0o700 })
+      await mkdir(dirname(filesDir), { recursive: true, mode: 0o700 })
       try {
         await stat(filesDir)
-        throw new Error(`QZH case ${String(id)} already has extracted evidence`)
+        throw new Error(`QZH case ${String(id)} already has ${category} evidence`)
       } catch (error: unknown) {
         if (!isENOENT(error)) throw error
       }
       await rename(staging, filesDir)
-      await writeFile(join(caseDir, EVIDENCE_ARCHIVE_NAME), content, { mode: 0o600 })
+      await writeFile(join(caseDir, `archive-${category}.zip`), content, { mode: 0o600 })
       const timestamp = now()
+      const current = this.requireCase(sessionId, id)
       const next: CaseRecord = {
-        ...this.requireCase(sessionId, id),
+        ...current,
         state: 'evidence-ready',
         updatedAt: timestamp,
-        archiveFilename: upload.filename,
+        archives: { ...current.archives, [category]: upload.filename },
       }
+      // Legacy single-archive field, retained for backward compatibility.
+      if (current.archiveFilename === undefined) next.archiveFilename = upload.filename
       this.cases.set(id, next)
       await this.persistCase(id)
       return { ...next }
@@ -538,9 +544,13 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async getEvidenceTree(sessionId: SessionId, id: QzhCaseId): Promise<QzhLogListResult> {
     await this.casesUnit()
     const record = this.requireCase(sessionId, id)
-    const archive = await this.archiveMetadata(record)
+    const archives = await this.archiveMetadata(record)
     try {
-      return { ...await this.listEvidenceTree(sessionId, id), summaryOnly: false, ...(archive === undefined ? {} : { archive }) }
+      return {
+        ...await this.listEvidenceTree(sessionId, id),
+        summaryOnly: false,
+        ...(archives.length === 0 ? {} : { archives }),
+      }
     } catch (error: unknown) {
       if (error instanceof Error && /summary-only/.test(error.message)) {
         return {
@@ -563,20 +573,56 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     }
   }
 
-  /** Read the uploaded bundle's display metadata, when one exists.
+  /** Read every uploaded bundle's display metadata for a case.
    * @param record - the authorized case record.
-   * @returns filename and byte size of the stored archive, or undefined.
+   * @returns per-category filename and size, oldest first; empty when none.
    */
-  private async archiveMetadata(record: CaseRecord): Promise<{ filename: string; size: number } | undefined> {
-    if (record.archiveFilename === undefined) return undefined
-    const archivePath = join(this.evidenceRoot, String(record.id), EVIDENCE_ARCHIVE_NAME)
-    try {
-      const info = await stat(archivePath)
-      return { filename: record.archiveFilename, size: info.size }
-    } catch (error: unknown) {
-      if (isENOENT(error)) return undefined
-      throw error
+  private async archiveMetadata(record: CaseRecord): Promise<QzhArchiveInfo[]> {
+    const infos: QzhArchiveInfo[] = []
+    const categories: QzhLogCategory[] = ['server', 'terminal']
+    for (const category of categories) {
+      const filename = record.archives?.[category]
+      if (filename === undefined) continue
+      const archivePath = join(this.evidenceRoot, String(record.id), `archive-${category}.zip`)
+      try {
+        const info = await stat(archivePath)
+        infos.push({ category, filename, size: info.size })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
     }
+    // Legacy single-archive field, when no per-category record exists.
+    if (infos.length === 0 && record.archiveFilename !== undefined) {
+      const archivePath = join(this.evidenceRoot, String(record.id), EVIDENCE_ARCHIVE_NAME)
+      try {
+        const info = await stat(archivePath)
+        infos.push({ category: 'server', filename: record.archiveFilename, size: info.size })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
+    }
+    return infos
+  }
+
+  /** Return one stored bundle for download-back, under its original name.
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @param category - field side to download; defaults to server.
+   * @returns original filename and the archive bytes (base64), or undefined.
+   */
+  @Remote('downloadEvidenceArchive')
+  async downloadEvidenceArchive(sessionId: SessionId, id: QzhCaseId, category: QzhLogCategory): Promise<QzhArchiveDownload | undefined> {
+    await this.casesUnit()
+    const record = this.requireCase(sessionId, id)
+    const safeCategory = ensureCategory(category)
+    const filename = record.archives?.[safeCategory]
+    if (filename === undefined && record.archiveFilename === undefined) return undefined
+    const archivePath = join(this.evidenceRoot, String(record.id), `archive-${safeCategory}.zip`)
+    const bytes = await readFile(archivePath)
+    if (Buffer.byteLength(bytes) > this.maxEvidenceArchiveBytes) {
+      throw new Error(`QZH evidence archive exceeds ${String(this.maxEvidenceArchiveBytes)} bytes`)
+    }
+    return { filename: filename ?? record.archiveFilename ?? 'archive.zip', category: safeCategory, contentBase64: bytes.toString('base64'), size: bytes.byteLength }
   }
 
   /** Attach browser-approved parsed evidence; raw logs remain opt-in.
@@ -640,6 +686,19 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async getCase(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
     await this.casesUnit()
     return { ...this.requireCase(sessionId, id) }
+  }
+
+  /** Read the latest case a session submitted, for UI restoration after reload.
+   * @param sessionId - owning DSH session.
+   * @returns the latest case view, or undefined when the session has none.
+   */
+  @Remote('getActiveCase')
+  async getActiveCase(sessionId: SessionId): Promise<QzhCaseView | undefined> {
+    await this.casesUnit()
+    const activeId = this.activeCases.get(sessionId)
+    if (activeId === undefined) return undefined
+    const record = this.cases.get(activeId)
+    return record === undefined || record.sessionId !== sessionId ? undefined : { ...record }
   }
 
   /** Record the user's verdict on a completed analysis.
@@ -817,8 +876,18 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @param record - the authorized case record.
    * @returns canonical absolute path of the case evidence `files/` directory.
    */
-  private async evidenceFilesDir(record: CaseRecord): Promise<string> {
-    const dir = join(this.evidenceRoot, String(record.id), EVIDENCE_DIR_NAME)
+  /** Resolve the extracted evidence tree for one case and field side.
+   *
+   * Ownership is enforced by the caller via `requireCase` BEFORE this path
+   * resolves; here only the tree's existence and containment are checked.
+   * @param record - the authorized case record.
+   * @param category - field side to resolve; undefined resolves the legacy
+   * flat layout (pre multi-archive cases).
+   * @returns canonical absolute path of the case evidence tree.
+   */
+  private async evidenceFilesDir(record: CaseRecord, category?: QzhLogCategory): Promise<string> {
+    const base = join(this.evidenceRoot, String(record.id), EVIDENCE_DIR_NAME)
+    const dir = category === undefined ? base : join(base, category)
     let real: string
     try {
       real = await realpath(dir)
@@ -835,10 +904,11 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   /** Validate one evidence-relative path and resolve it inside the case tree.
    * @param record - the authorized case record.
    * @param path - evidence-relative path from a tool argument.
+   * @param category - field side owning the path.
    * @returns canonical absolute file path, guaranteed inside the case tree.
    */
-  private async resolveEvidenceFile(record: CaseRecord, path: string): Promise<string> {
-    const root = await this.evidenceFilesDir(record)
+  private async resolveEvidenceFile(record: CaseRecord, path: string, category?: QzhLogCategory): Promise<string> {
+    const root = await this.evidenceFilesDir(record, category)
     const safe = ensureRelativePath(path)
     const candidate = join(root, safe)
     let real: string
@@ -861,11 +931,12 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    */
   async listEvidenceTree(sessionId: SessionId, id: QzhCaseId): Promise<QzhLogListResult> {
     const record = this.requireCase(sessionId, id)
-    const root = await this.evidenceFilesDir(record)
     const files: QzhEvidenceTreeFile[] = []
     let totalBytes = 0
     let truncated = false
-    const walk = async (dir: string, prefix: string): Promise<void> => {
+    // Aggregate every field-side subtree; the legacy flat layout (one root,
+    // no category children) is walked with the server category label.
+    const walk = async (dir: string, prefix: string, category: QzhLogCategory): Promise<void> => {
       if (truncated || files.length >= EVIDENCE_MAX_TREE_FILES) { truncated = true; return }
       let entries: Dirent[] = []
       try {
@@ -876,23 +947,49 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       for (const entry of entries) {
         if (truncated || files.length >= EVIDENCE_MAX_TREE_FILES) { truncated = true; return }
         const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
-        if (entry.isDirectory()) { await walk(join(dir, entry.name), rel); continue }
+        if (entry.isDirectory()) { await walk(join(dir, entry.name), rel, category); continue }
         if (!entry.isFile()) continue
         const abs = join(dir, entry.name)
         const info = await stat(abs)
         totalBytes += info.size
         const sample = await this.firstLineSample(abs)
+        // The summary stores the raw bundle-relative path; strip the
+        // category prefix before matching.
+        const raw = prefix === category ? entry.name : `${prefix}/${entry.name}`.slice(category.length + 1)
+        const summary = record.evidence?.files.find(file => file.path === raw && file.category === category)
         files.push({
           path: rel,
           size: info.size,
-          component: record.evidence?.files.find(file => file.path === rel)?.component ?? 'log',
-          stream: record.evidence?.files.find(file => file.path === rel)?.stream ?? 'log',
-          category: record.evidence?.files.find(file => file.path === rel)?.category ?? 'server',
+          component: summary?.component ?? 'log',
+          stream: summary?.stream ?? 'log',
+          category,
           ...(sample === undefined ? {} : { sample }),
         })
       }
     }
-    await walk(root, '')
+    const categories: QzhLogCategory[] = ['server', 'terminal']
+    let anyTree = false
+    for (const category of categories) {
+      try {
+        const root = await this.evidenceFilesDir(record, category)
+        anyTree = true
+        await walk(root, category, category)
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || !/summary-only/.test(error.message)) throw error
+      }
+    }
+    // Legacy flat layout: a `files/` root whose children are files, not
+    // `server/`/`terminal/` subdirectories.
+    if (!anyTree) {
+      try {
+        const root = await this.evidenceFilesDir(record)
+        await walk(root, '', 'server')
+        anyTree = true
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || !/summary-only/.test(error.message)) throw error
+      }
+    }
+    if (!anyTree) throw new Error(`QZH case ${String(record.id)} has no full log evidence (summary-only mode)`)
     return {
       files,
       totalFiles: files.length,
@@ -933,12 +1030,13 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     maxResults: number,
   ): Promise<QzhLogSearchResult> {
     const record = this.requireCase(sessionId, id)
-    const root = await this.evidenceFilesDir(record)
     const needle = query
     const limit = Math.min(Math.max(1, maxResults), this.maxLogSearchResults)
     const matches: QzhLogMatch[] = []
     let scanned = 0
     let truncated = false
+    // Search every field-side subtree; hits carry a `server/` or `terminal/`
+    // path prefix so the same relative file in both bundles stays distinct.
     const walk = async (dir: string, prefix: string): Promise<void> => {
       if (truncated || matches.length >= limit) { truncated = true; return }
       let entries: Dirent[] = []
@@ -972,7 +1070,28 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         }
       }
     }
-    await walk(root, '')
+    const categories: QzhLogCategory[] = ['server', 'terminal']
+    let anyTree = false
+    for (const category of categories) {
+      try {
+        const root = await this.evidenceFilesDir(record, category)
+        anyTree = true
+        await walk(root, category)
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || !/summary-only/.test(error.message)) throw error
+      }
+    }
+    if (!anyTree) {
+      // Legacy flat layout: search without a category prefix.
+      try {
+        const root = await this.evidenceFilesDir(record)
+        await walk(root, '')
+        anyTree = true
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || !/summary-only/.test(error.message)) throw error
+      }
+    }
+    if (!anyTree) throw new Error(`QZH case ${String(record.id)} has no full log evidence (summary-only mode)`)
     return { query: needle, matches, truncated }
   }
 
@@ -992,7 +1111,14 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     endLine: number | undefined,
   ): Promise<QzhLogReadResult> {
     const record = this.requireCase(sessionId, id)
-    const file = await this.resolveEvidenceFile(record, path)
+    // Search/list results carry a `server/` or `terminal/` prefix (absent in
+    // the legacy flat layout). Split it off so the file resolves inside the
+    // right field-side subtree.
+    const slash = path.indexOf('/')
+    const prefix = slash > 0 ? path.slice(0, slash) : ''
+    const category: QzhLogCategory | undefined = prefix === 'server' || prefix === 'terminal' ? prefix : undefined
+    const safePath = category === undefined ? path : path.slice(slash + 1)
+    const file = await this.resolveEvidenceFile(record, safePath, category)
     const info = await stat(file)
     if (info.size > this.maxEvidenceFileBytes) {
       throw new Error(`QZH evidence file ${path} exceeds ${String(this.maxEvidenceFileBytes)} bytes`)

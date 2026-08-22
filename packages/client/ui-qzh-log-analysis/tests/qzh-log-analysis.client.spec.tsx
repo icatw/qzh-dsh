@@ -178,7 +178,7 @@ describe('QZH full-log archive upload', () => {
     const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
     expect(payload.filename).toBe('logs.zip')
     expect(payload.contentBase64).toBe(Buffer.from(zipBytes).toString('base64'))
-    expect(input.startAnalysis).toHaveBeenCalled()
+    await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
   })
 
   it('starts analysis even when the archive upload fails', async () => {
@@ -192,39 +192,42 @@ describe('QZH full-log archive upload', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
     await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
-    expect(screen.getByText(/完整日志包上传失败/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText(/完整日志包上传失败/)).toBeTruthy())
   })
 })
 
 describe('QzhEvidenceFiles', () => {
+  const baseProps = { archives: [] as readonly never[], caseId: 'case' as QzhCaseView['id'], onDownloadArchive: vi.fn() }
   it('renders a collapsible file list with size, category, and sample', () => {
     render(<QzhEvidenceFiles
       files={[{
         path: 'server/logs/app.log', size: 2048, lineCount: 42, component: 'web-agent', stream: 'log', category: 'server', sample: '2026-08-21 INFO start',
       }, {
-        path: 'worker/w.out', size: 128, component: 'worker', stream: 'log', category: 'server',
+        path: 'server/worker/w.out', size: 128, component: 'worker', stream: 'log', category: 'server',
       }]}
       clusters={[]}
       summaryOnly={false}
+      {...baseProps}
     />)
     // Collapsed by default: the toggle names the count, the rows are hidden.
     expect(screen.getByText('证据文件（2）')).toBeTruthy()
     expect(screen.queryByText('server/logs/app.log')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
     expect(screen.getByText('server/logs/app.log')).toBeTruthy()
-    expect(screen.getByText(/2\.0 KB · 42 行 · server/)).toBeTruthy()
+    expect(screen.getByText(/2\.0 KB · 42 行 · 服务端/)).toBeTruthy()
     expect(screen.getByText('2026-08-21 INFO start')).toBeTruthy()
-    expect(screen.getByText('worker/w.out')).toBeTruthy()
+    expect(screen.getByText('server/worker/w.out')).toBeTruthy()
     expect(screen.queryByText('证据摘要（2）')).toBeNull()
   })
 
   it('labels summary-only listings distinctly and renders nothing when empty', () => {
-    const { rerender } = render(<QzhEvidenceFiles files={[]} clusters={[]} summaryOnly />)
+    const { rerender } = render(<QzhEvidenceFiles files={[]} clusters={[]} summaryOnly {...baseProps} />)
     expect(screen.queryByRole('button')).toBeNull()
     rerender(<QzhEvidenceFiles
       files={[{ path: 'a.log', size: 5, component: 'x', stream: 'log', category: 'server' }]}
       clusters={[]}
       summaryOnly
+      {...baseProps}
     />)
     expect(screen.getByText('证据摘要（1）')).toBeTruthy()
   })

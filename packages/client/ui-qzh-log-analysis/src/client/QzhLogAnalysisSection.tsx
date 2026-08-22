@@ -54,9 +54,10 @@ export function QzhLogAnalysisSection({
   const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
   const state = useStore((value: QzhSessionState) => value)
   const [analysisRunning, setAnalysisRunning] = useState(false)
-  /** Original log archive retained for the durable full-evidence upload. A
-   *  ref (not state) so an immediate submit after import always sees it. */
-  const archiveRef = useRef<QzhArchiveUpload | undefined>(undefined)
+  /** Original log archives retained for the durable full-evidence upload,
+   *  keyed by field side so both the server and terminal bundles survive.
+   *  A ref (not state) so an immediate submit after import always sees it. */
+  const archiveRef = useRef<Map<QzhLogCategory, QzhArchiveUpload>>(new Map())
   const caseId = state.caseView?.id
   const caseState = state.caseView?.state
 
@@ -91,7 +92,7 @@ export function QzhLogAnalysisSection({
       for (const file of [...files].slice(0, MAX_FILES)) {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const bytes = new Uint8Array(await file.arrayBuffer())
-          archiveRef.current = { filename: file.name, contentBase64: bytesToBase64(bytes) }
+          archiveRef.current.set(category, { filename: file.name, category, contentBase64: bytesToBase64(bytes) })
           const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
           for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
@@ -129,18 +130,23 @@ export function QzhLogAnalysisSection({
       actions.setCaseView(saved)
       // Full-bundle upload is best-effort and never blocks analysis: the
       // summary already started the case, and list/search/read tools degrade
-      // to summary-only until the archive lands.
-      if (archiveRef.current !== undefined) {
+      // to summary-only until the archives land. Server and terminal bundles
+      // are uploaded independently so one failure keeps the other.
+      const uploadResults: Promise<void>[] = []
+      if (archiveRef.current.size > 0) {
         actions.setStatus('正在上传完整日志包（摘要分析可先开始）…')
-        void uploadEvidenceArchive(saved.id, archiveRef.current)
-          .then(actions.setCaseView)
-          .catch(() => {
-            actions.setStatus('完整日志包上传失败，本次分析将基于提交的摘要。')
-          })
+        for (const upload of archiveRef.current.values()) {
+          uploadResults.push(uploadEvidenceArchive(saved.id, upload).then(() => { actions.setCaseView(saved) }))
+        }
       }
       const started = await startAnalysis(saved.id)
       actions.setCaseView(started)
       actions.setPanelOpen(true)
+      // Wait for the uploads to settle (they never gate analysis), then merge
+      // any failure into the final status so it survives the "分析已启动" text.
+      const failures = (await Promise.allSettled(uploadResults))
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map(() => '完整日志包上传失败，本次分析将基于提交的摘要。')
       let status = '分析已启动，报告会回到当前会话消息流。'
       if (renameSession !== undefined) {
         try {
@@ -149,6 +155,7 @@ export function QzhLogAnalysisSection({
           status = `分析已启动，但会话标题未更新：${error instanceof Error ? error.message : String(error)}`
         }
       }
+      if (failures.length > 0) status = `${status} ${failures.join(' ')}`
       actions.setStatus(status)
     } catch (error) {
       actions.setStatus(`提交或启动分析失败：${error instanceof Error ? error.message : String(error)}`)

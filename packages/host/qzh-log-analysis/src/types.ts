@@ -80,6 +80,8 @@ export interface QzhCaseView {
   readonly analysisError?: string
   /** Original name of the uploaded log bundle (audit label; never a path). */
   readonly archiveFilename?: string
+  /** Per-field-side uploaded bundle names (audit labels; never paths). */
+  readonly archives?: { readonly [K in QzhLogCategory]?: string }
   /** User verdict on the completed report. */
   readonly feedback?: QzhFeedbackKind
   /** Optional free-text note attached to the feedback. */
@@ -121,8 +123,21 @@ export interface QzhCodeReadResult {
 export interface QzhArchiveUpload {
   /** Original archive file name (audit only; never used in a filesystem path). */
   readonly filename: string
+  /** Field side this bundle belongs to; one archive per category is kept. */
+  readonly category: QzhLogCategory
   /** The archive bytes, base64-encoded by the browser (zip). */
   readonly contentBase64: string
+}
+
+/** Stored bundle payload for browser download-back. */
+export interface QzhArchiveDownload {
+  /** Original upload file name, preserved verbatim for the download name. */
+  readonly filename: string
+  /** Field side this bundle belongs to. */
+  readonly category: QzhLogCategory
+  /** The stored archive bytes, base64-encoded for the browser. */
+  readonly contentBase64: string
+  readonly size: number
 }
 
 /** One extracted log file in the case evidence tree. */
@@ -147,11 +162,18 @@ export interface QzhLogMatch {
   readonly excerpt: string
 }
 
+/** One uploaded bundle's display metadata. */
+export interface QzhArchiveInfo {
+  readonly category: QzhLogCategory
+  readonly filename: string
+  readonly size: number
+}
+
 /** Evidence tree + clusters served by the list tool. */
 export interface QzhLogListResult {
   readonly root?: string
-  /** Uploaded bundle metadata, present only when the full archive landed. */
-  readonly archive?: { readonly filename: string; readonly size: number }
+  /** Uploaded bundle metadata per field side, present when an archive landed. */
+  readonly archives?: readonly QzhArchiveInfo[]
   readonly files: readonly QzhEvidenceTreeFile[]
   readonly totalFiles: number
   readonly totalBytes: number
