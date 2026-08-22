@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { StorageError, UNIT_NAME_RE, storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
-import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
+import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend, BlobFacet } from '@deepseek-ai/dsh-storage'
+import { JsonBlobFacet } from './blob.ts'
 import { openJsonUnit } from './unit.ts'
 
 /** Cordis plugin name. */
@@ -34,15 +35,22 @@ export const Config: z<Config> = z.object({
   root: z.string().required(),
 })
 
-/** JSON backend: owns the file-tree root and serves the `kv` facet. */
+/** JSON backend: owns the file-tree root and serves the `kv` and `blob` facets. */
 export class JsonStorageBackend implements StorageBackend {
   private readonly open = new Map<string, KvUnit>()
   // Reserved synchronously at open() entry so a concurrent open of the same
   // unit fails, and close() can await opens still in flight.
   private readonly opening = new Map<string, Promise<KvUnit>>()
   private closed = false
+  private readonly blobFacet: JsonBlobFacet
 
-  constructor(private readonly root: string) {}
+  /** Local-directory blob facet; shares the backend root under `blobs/`. */
+  readonly blob: BlobFacet
+
+  constructor(private readonly root: string) {
+    this.blobFacet = new JsonBlobFacet(root)
+    this.blob = this.blobFacet
+  }
 
   readonly kv: KvFacet = {
     // The body up to the first await runs synchronously, so the opening-slot
@@ -82,6 +90,7 @@ export class JsonStorageBackend implements StorageBackend {
     for (const unit of [...this.open.values()]) {
       await unit.close()
     }
+    await this.blobFacet.close()
   }
 }
 

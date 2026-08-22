@@ -255,15 +255,16 @@ async function evidenceHarness(): Promise<{
   service: QzhLogAnalysisService
   sessionId: SessionId
   caseId: QzhCaseView['id']
-  evidenceRoot: string
+  storageRoot: string
 }> {
   const ctx = new Context()
   contexts.push(ctx)
-  const evidenceRoot = mkdtempSync(join(tmpdir(), 'qzh-evidence-'))
-  const service = new QzhLogAnalysisService(ctx, { mirrorRoot: '/tmp/qzh-mirror', evidenceRoot })
+  const storageRoot = mkdtempSync(join(tmpdir(), 'qzh-storage-'))
+  mountStorage(ctx, storageRoot)
+  const service = new QzhLogAnalysisService(ctx, { mirrorRoot: '/tmp/qzh-mirror' })
   const sessionId = 'session-evidence' as SessionId
   const created = await service.createCase(sessionId, {})
-  return { service, sessionId, caseId: created.id, evidenceRoot }
+  return { service, sessionId, caseId: created.id, storageRoot }
 }
 
 /** Encode a zip with the given relative paths as base64. */

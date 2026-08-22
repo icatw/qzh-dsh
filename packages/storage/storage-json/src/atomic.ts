@@ -51,3 +51,28 @@ async function fsyncDirectory(path: string): Promise<void> {
   }
 }
 /* v8 ignore stop */
+
+/**
+ * Durably replace `path` with binary `data`, using the same write-then-rename
+ * protocol as {@link writeAtomic} but without a UTF-8 decode step.
+ * @param path - Absolute target file path.
+ * @param data - Full new file bytes.
+ * @returns resolution after the replacement is crash-durable.
+ */
+export async function writeAtomicBytes(path: string, data: Uint8Array): Promise<void> {
+  const tmp = join(dirname(path), `.${randomUUID()}.tmp`)
+  try {
+    const handle = await open(tmp, 'wx', 0o600)
+    try {
+      await handle.writeFile(data)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await rename(tmp, path)
+    await fsyncDirectory(dirname(path))
+  } catch (error) {
+    await rm(tmp, { force: true })
+    throw error
+  }
+}

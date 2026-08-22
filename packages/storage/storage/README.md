@@ -8,7 +8,7 @@ Storage hub (`ctx.storage`) for non-session data: a named backend registry plus 
 
 - `ctx.storage.backend` — name → backend table. Multiple backends stay mounted side by side (`json`, `sqlite`); which backend serves a consumer is that consumer's configuration (the domain layer's route table), never a hub-global choice. `register()` returns the disposer; duplicate names and unknown lookups fail loud.
 - `ctx.storage.mount(form, facility)` / `ctx.storage.form(form)` — data-form mounting. `StorageForms` is merge-extensible; the domain layer merges `domain` and is reached as `ctx.storage.domain`.
-- A backend owns one medium and exposes the data-shape facets it supports. `kv` is the current facet; `src/backend.ts` owns its exact contract.
+- A backend owns one medium and exposes the data-shape facets it supports. `kv` (key-value units) and `blob` (binary objects) are the current facets; `src/backend.ts` owns their exact contracts.
 
 ## Model Experience
 
@@ -28,5 +28,5 @@ Independent of live requests: the hub never touches a request prefix, so it cann
 
 ## Known Limitations and Deferred Work
 
-- **`kv` is the only data shape** — backends currently have one facet to implement.
+- **`kv` and `blob` are the data shapes** — backends implement the facets they can serve; omitting one fails loud on resolution.
 - **Forms resolve lazily** — reading `ctx.storage.domain` before the domain plugin mounts throws `form-not-mounted`; assemblies order plugins accordingly (misconfiguration fails loud rather than silently deferring).

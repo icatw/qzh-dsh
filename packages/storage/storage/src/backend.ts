@@ -18,6 +18,9 @@ export interface StorageBackend {
   /** Key-value operations; absent when this backend cannot serve them. */
   readonly kv?: KvFacet
 
+  /** Binary-object operations; absent when this backend cannot serve them. */
+  readonly blob?: BlobFacet
+
   /**
    * Drain in-flight writes across all open units and release the medium.
    * Idempotent; concurrent and repeated calls resolve once teardown finishes.
@@ -52,6 +55,67 @@ export interface KvUnitDescriptor {
   readonly tables: readonly string[]
   /** Whether this unit carries the global singleton slot. */
   readonly hasGlobal: boolean
+}
+
+/** One binary object keyed by a relative, path-shaped key. */
+export interface BlobObject {
+  /** Relative key; never reaches a bare filesystem path outside the backend medium. */
+  readonly key: string
+  readonly size: number
+}
+
+/**
+ * The binary-object data shape: opaque byte blobs addressed by a relative
+ * path-shaped key. Keys are `a/b/c` segments (no leading `/`, no `.`/`..`,
+ * no empty segment); the backend owns mapping keys onto its medium (a file
+ * tree for the local backend, object keys for an object store).
+ */
+export interface BlobFacet {
+  /**
+   * Store one object durably, overwriting an existing key.
+   * @param key - relative path-shaped key.
+   * @param bytes - the full object bytes.
+   * @returns resolution after durability.
+   */
+  put(key: string, bytes: Uint8Array): Promise<void>
+
+  /**
+   * Read the full object.
+   * @param key - relative path-shaped key.
+   * @returns the full bytes.
+   * @throws `not-found` when the key does not exist.
+   */
+  get(key: string): Promise<Uint8Array>
+
+  /**
+   * Read a byte range of one object.
+   * @param key - relative path-shaped key.
+   * @param offset - zero-based start offset.
+   * @param length - maximum bytes to return.
+   * @returns up to `length` bytes from `offset` (fewer near the end).
+   * @throws `not-found` when the key does not exist.
+   */
+  getRange(key: string, offset: number, length: number): Promise<Uint8Array>
+
+  /**
+   * Read one object's size, when it exists.
+   * @param key - relative path-shaped key.
+   * @returns the size, or undefined when the key does not exist.
+   */
+  stat(key: string): Promise<{ size: number } | undefined>
+
+  /**
+   * Recursively list every object under a prefix.
+   * @param prefix - relative path-shaped prefix (empty for the whole medium).
+   * @returns objects, in an unspecified order.
+   */
+  list(prefix: string): Promise<BlobObject[]>
+
+  /**
+   * Delete one object. Idempotent: a missing key is a no-op.
+   * @param key - relative path-shaped key.
+   */
+  delete(key: string): Promise<void>
 }
 
 /**

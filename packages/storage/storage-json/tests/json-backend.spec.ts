@@ -225,4 +225,40 @@ describe('json backend specifics', () => {
     await expect(opening.then(u => u.putRecord('t', 'x', {}))).rejects.toMatchObject({ code: 'closed' })
     await closing
   })
+
+  it('serves the blob facet: put/get/stat/list/delete across a nested key space', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    const blob = backend.blob!
+    await blob.put('case-1/files/server/logs.txt', Buffer.from('line one\nline two\n'))
+    await blob.put('case-1/archive-server.zip', Buffer.from('PK\u0003\u0004'))
+    await blob.put('case-2/files/terminal/a.out', Buffer.from('out'))
+
+    expect(await blob.get('case-1/files/server/logs.txt')).toEqual(Buffer.from('line one\nline two\n'))
+    expect(await blob.stat('case-1/files/server/logs.txt')).toEqual({ size: 18 })
+    expect(await blob.stat('missing')).toBeUndefined()
+
+    // Range reads bound the slice and stop short at EOF.
+    expect(await blob.getRange('case-1/files/server/logs.txt', 5, 4)).toEqual(Buffer.from('one\n'))
+    expect(await blob.getRange('case-1/files/server/logs.txt', 0, 999)).toEqual(Buffer.from('line one\nline two\n'))
+
+    const listed = (await blob.list('case-1')).map(o => o.key).sort()
+    expect(listed).toEqual(['case-1/archive-server.zip', 'case-1/files/server/logs.txt'])
+
+    await blob.delete('case-1/archive-server.zip')
+    expect(await blob.stat('case-1/archive-server.zip')).toBeUndefined()
+    await blob.delete('case-1/archive-server.zip') // idempotent
+    await backend.close()
+  })
+
+  it('rejects escaping and malformed blob keys', async () => {
+    const root = await freshRoot()
+    const backend = new JsonStorageBackend(root)
+    const blob = backend.blob!
+    for (const bad of ['', '/abs', 'a//b', 'a/../b', '.', '..', 'a/./b', 'a\\b', 'a\0b']) {
+      await expect(blob.put(bad, Buffer.from('x'))).rejects.toMatchObject({ code: 'malformed-medium' })
+    }
+    await backend.close()
+    await expect(blob.put('a', Buffer.from('x'))).rejects.toMatchObject({ code: 'closed' })
+  })
 })
