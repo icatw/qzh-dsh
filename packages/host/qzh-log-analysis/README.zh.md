@@ -14,8 +14,8 @@ DSH Web 的 Host 侧 QZH 案例 Remote API、只读 Git mirror 和当前会话�
 
 ## 已知限制与暂缓事项
 
-- **案例持久化**：案例通过 `ctx.storage` 的 kv 后端（默认 `json`，`storageBackend` 可配置）持久化到 `qzh_cases` 单元，启动后首次访问时自动恢复；storage 服务或后端不可用时降级为纯内存案例并警告一次。报告反馈同样随案例持久化。
-- **必须配置 mirror**：只有设置 `QZH_MIRROR_ROOT` 时 Web profile 才加载本包；可配置包含 `server/` 的目录，也可直接配置该 QZH Git checkout（当前为 `https://git.in.chaitin.net/cyberserval/qzh`）。
+- **案例持久化**：案例通过 `ctx.storage` 的 kv 后端（默认 `json`，`storageBackend` 可配置）持久化到 `qzh_cases` 单元，启动后首次访问时自动恢复；storage 服务或后端不可用时降级为纯内存案例并警告一次。报告反馈同样随案例持久化。`storageBackend` 命名同时持有 `qzh_cases` KV 单元与各案例证据 blob 的单一后端，因此把它指向持久卷或对象存储后端即可一次迁移全部 QZH 持久数据。
+- **必须配置 mirror**：只有设置 `QZH_MIRROR_ROOT` 时 Web profile 才加载本包；它指向服务端 Git 对象库（checkout 或裸仓库，其 tag/commit 能被 `git show`/`git grep` 命中，不使用工作树）。公网部署时这是持久 clone 并用 `git fetch --tags` 刷新，绝非单机 checkout。
 - **只读源码面**：搜索和有限读取都会校验路径包含关系，不提供源码写入或任意命令执行。
 - **证据会二次脱敏**：Host 会规范化压缩包内相对路径、限制元数据大小，并在保存摘要前遮盖常见 Authorization、Cookie、Token、密码、Secret 和私钥模式；每个文件的首行布局样例同样会脱敏并限制在 512 字符内。每个文件和聚类都带 `category`（`server`/`terminal`），非 `terminal` 一律归为 `server`。
 - **报告反馈**：`setFeedback(sessionId, caseId, kind, comment?)` 记录 `like`/`dislike` 与可选备注，校验案例归属和 kind 后写回案例；反馈暂存于内存案例。

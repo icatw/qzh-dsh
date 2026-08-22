@@ -54,6 +54,10 @@
     - id: storage-json
       name: '@deepseek-ai/dsh-storage-json'
       config:
+        # Backing medium for both KV units and the blob facet. For a public,
+        # multi-replica deployment point this at a persistent volume or swap
+        # the backend for an object-store implementation — never a per-process
+        # scratch directory. Locally it lives under the harness home.
         root: !!js dshHomePath('storages')
 
     - id: storage-domain
@@ -96,6 +100,10 @@
 
     # QZH case API and read-only source mirror. Keep the capability absent in
     # an unconfigured checkout instead of falling back to the DSH cwd.
+    # Deployment note: QZH_MIRROR_ROOT is a server-side Git object store (any
+    # tag/commit reachable via `git show` / `git grep`, no checkout), and the
+    # `storageBackend` (default `json`) names the backend that holds both the
+    # `qzh_cases` KV unit and the per-case evidence blobs.
     - id: qzh-log-analysis
       name: '@deepseek-ai/dsh-host-qzh-log-analysis'
       disabled: !!js "(process.env.QZH_MIRROR_ROOT ?? '') === ''"
