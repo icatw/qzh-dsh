@@ -31,9 +31,13 @@ export function QzhEvidenceDock({
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
     let disposed = false
+    // Re-fetch on state change too: the archive upload completes between
+    // `evidence-ready` and `analyzing`, and the tree only reflects the full
+    // bundle once it has landed. A `caseId`-only effect would freeze on the
+    // summary tree fetched before the upload finished.
     void getEvidenceTree(caseId).then(result => { if (!disposed) setTree(result) }).catch(() => {})
     return () => { disposed = true }
-  }, [caseId, getEvidenceTree, preset])
+  }, [caseId, caseState, getEvidenceTree, preset])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
     if (sessionSummary?.title === undefined) void renameSession('QZH 日志分析')
