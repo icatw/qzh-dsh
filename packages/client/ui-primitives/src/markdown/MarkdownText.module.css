@@ -144,8 +144,12 @@
 }
 
 .markdown :not(pre) > code {
-  display: inline-flex;
-  align-items: center;
+  /* Inline-block (not inline-flex) so long code (paths, SQL, uids) wraps
+     inside narrow columns instead of overflowing the container. */
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
   box-sizing: border-box;
   font: var(--dsw-font-markdown-code);
   font-family: var(--ds-font-family-code);
@@ -177,10 +181,15 @@
   overscroll-behavior-x: contain;
 }
 
+/* Fixed layout: columns share the container width and cell content wraps, so
+   a table never overflows a narrow column (details rail / message rail).
+   Long code inside cells breaks via overflow-wrap instead of widening the
+   table past its container. */
 .tableScroll table {
   border-collapse: collapse;
-  width: max-content;
-  max-width: max-content;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
 }
 
 .tableScroll th {
@@ -192,6 +201,8 @@
   max-width: 320px;
   max-width: min(30vw, 320px);
   min-width: 100px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tableScroll td {
@@ -201,6 +212,8 @@
   max-width: 320px;
   max-width: min(30vw, 320px);
   min-width: 100px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tableScroll th:first-child,
