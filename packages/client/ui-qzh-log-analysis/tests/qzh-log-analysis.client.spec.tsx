@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSyncExternalStore } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { zipSync, strToU8 } from 'fflate'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import { inject as qzhInject } from '../src/client/index.ts'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
 import { QzhAnalysisStatus } from '../src/client/QzhAnalysisStatus.tsx'
+import { QzhEvidenceFiles } from '../src/client/QzhEvidenceFiles.tsx'
 import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
 import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
 
 afterEach(cleanup)
+beforeEach(() => { localStorage.clear() })
 
 const SESSION_ID = 'session-qzh' as SessionId
 
@@ -135,5 +138,94 @@ describe('QZH blank-session analysis surface', () => {
     const reportCard = document.querySelector('[class*="report"]')
     expect(reportCard).not.toBeNull()
     expect(reportCard?.getAttribute('style')).toBeNull()
+  })
+
+  it('renders a limited completion distinctly and still offers feedback', () => {
+    render(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed_with_limitations', createdAt: 1, updatedAt: 1,
+        report: '# 结论\n部分结论。',
+        analysisError: '报告缺少必要结构（结论✓ 事实证据✗ 代码定位✗），已按受限完成保留。',
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    expect(screen.getByText('受限完成')).toBeTruthy()
+    expect(screen.getAllByText(/已按受限完成保留/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('报告缺少部分必要结构，已按受限完成保留；结论仍可参考。')).toBeTruthy()
+    expect(screen.getByText('这次分析有用吗？')).toBeTruthy()
+  })
+})
+
+describe('QZH full-log archive upload', () => {
+  function caseView(state: QzhCaseView['state'] = 'evidence-ready'): QzhCaseView {
+    return { id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state, createdAt: 1, updatedAt: 1 }
+  }
+
+  it('uploads the original zip after the summary is accepted, without blocking analysis', async () => {
+    const upload = vi.fn(async () => caseView())
+    const { props: input } = props({ uploadEvidenceArchive: upload })
+    const zipBytes = zipSync({ 'server/logs/a.log': strToU8('INFO start\nERROR boom') })
+    const zip = new File([Buffer.from(zipBytes)], 'logs.zip', { type: 'application/zip' })
+    render(<QzhLogAnalysisSection {...input} />)
+    fireEvent.change(screen.getAllByLabelText('选择日志目录')[0]!, { target: { files: [zip] } })
+    await waitFor(() => expect(screen.getByText('确认分析摘要')).toBeTruthy())
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
+    await waitFor(() => expect(input.setEvidence).toHaveBeenCalled())
+    await waitFor(() => expect(upload).toHaveBeenCalled())
+    const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
+    expect(payload.filename).toBe('logs.zip')
+    expect(payload.contentBase64).toBe(Buffer.from(zipBytes).toString('base64'))
+    expect(input.startAnalysis).toHaveBeenCalled()
+  })
+
+  it('starts analysis even when the archive upload fails', async () => {
+    const upload = vi.fn(async () => { throw new Error('upload failed') })
+    const { props: input } = props({ uploadEvidenceArchive: upload })
+    const zipBytes = zipSync({ 'a.log': strToU8('x') })
+    const zip = new File([Buffer.from(zipBytes)], 'logs.zip', { type: 'application/zip' })
+    render(<QzhLogAnalysisSection {...input} />)
+    fireEvent.change(screen.getAllByLabelText('选择日志目录')[0]!, { target: { files: [zip] } })
+    await waitFor(() => expect(screen.getByText('确认分析摘要')).toBeTruthy())
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
+    await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
+    expect(screen.getByText(/完整日志包上传失败/)).toBeTruthy()
+  })
+})
+
+describe('QzhEvidenceFiles', () => {
+  it('renders a collapsible file list with size, category, and sample', () => {
+    render(<QzhEvidenceFiles
+      files={[{
+        path: 'server/logs/app.log', size: 2048, lineCount: 42, component: 'web-agent', stream: 'log', category: 'server', sample: '2026-08-21 INFO start',
+      }, {
+        path: 'worker/w.out', size: 128, component: 'worker', stream: 'log', category: 'server',
+      }]}
+      clusters={[]}
+      summaryOnly={false}
+    />)
+    // Collapsed by default: the toggle names the count, the rows are hidden.
+    expect(screen.getByText('证据文件（2）')).toBeTruthy()
+    expect(screen.queryByText('server/logs/app.log')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
+    expect(screen.getByText('server/logs/app.log')).toBeTruthy()
+    expect(screen.getByText(/2\.0 KB · 42 行 · server/)).toBeTruthy()
+    expect(screen.getByText('2026-08-21 INFO start')).toBeTruthy()
+    expect(screen.getByText('worker/w.out')).toBeTruthy()
+    expect(screen.queryByText('证据摘要（2）')).toBeNull()
+  })
+
+  it('labels summary-only listings distinctly and renders nothing when empty', () => {
+    const { rerender } = render(<QzhEvidenceFiles files={[]} clusters={[]} summaryOnly />)
+    expect(screen.queryByRole('button')).toBeNull()
+    rerender(<QzhEvidenceFiles
+      files={[{ path: 'a.log', size: 5, component: 'x', stream: 'log', category: 'server' }]}
+      clusters={[]}
+      summaryOnly
+    />)
+    expect(screen.getByText('证据摘要（1）')).toBeTruthy()
   })
 })

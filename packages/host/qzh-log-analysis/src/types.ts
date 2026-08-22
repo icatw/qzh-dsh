@@ -14,7 +14,7 @@ export type QzhLogCategory = 'server' | 'terminal'
 export type QzhFeedbackKind = 'like' | 'dislike'
 
 /** Lifecycle of one case in the first Host API slice. */
-export type QzhCaseState = 'draft' | 'evidence-ready' | 'analyzing' | 'completed' | 'failed'
+export type QzhCaseState = 'draft' | 'evidence-ready' | 'analyzing' | 'completed' | 'completed_with_limitations' | 'failed'
 
 /** Case creation fields supplied by the browser. */
 export interface QzhCreateCaseRequest {
@@ -112,5 +112,64 @@ export interface QzhCodeReadResult {
   readonly path: string
   readonly startLine: number
   readonly endLine: number
+  readonly text: string
+}
+
+/** Browser upload of the original log bundle for durable per-case storage. */
+export interface QzhArchiveUpload {
+  /** Original archive file name (audit only; never used in a filesystem path). */
+  readonly filename: string
+  /** The archive bytes, base64-encoded by the browser (zip). */
+  readonly contentBase64: string
+}
+
+/** One extracted log file in the case evidence tree. */
+export interface QzhEvidenceTreeFile {
+  /** Real relative path inside the evidence bundle. */
+  readonly path: string
+  readonly size: number
+  /** Line count, present only when the file was small enough to count cheaply. */
+  readonly lineCount?: number
+  readonly component: string
+  readonly stream: string
+  readonly category: QzhLogCategory
+  /** Bounded first-line layout sample (redacted). */
+  readonly sample?: string
+}
+
+/** One bounded evidence search hit. */
+export interface QzhLogMatch {
+  readonly path: string
+  readonly line: number
+  /** Redacted, bounded excerpt around the hit. */
+  readonly excerpt: string
+}
+
+/** Evidence tree + clusters served by the list tool. */
+export interface QzhLogListResult {
+  readonly root?: string
+  readonly files: readonly QzhEvidenceTreeFile[]
+  readonly totalFiles: number
+  readonly totalBytes: number
+  readonly truncated: boolean
+  readonly clusters: readonly QzhEvidenceCluster[]
+  /** True when only the submitted summary backs the listing (no full archive). */
+  readonly summaryOnly?: boolean
+}
+
+/** Bounded evidence search result. */
+export interface QzhLogSearchResult {
+  readonly query: string
+  readonly matches: readonly QzhLogMatch[]
+  readonly truncated: boolean
+}
+
+/** Bounded line-range read from an extracted evidence file. */
+export interface QzhLogReadResult {
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly totalLines: number
+  /** Redacted text of the requested line range. */
   readonly text: string
 }

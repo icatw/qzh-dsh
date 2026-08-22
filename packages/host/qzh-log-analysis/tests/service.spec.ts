@@ -3,11 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { zipSync, strToU8 } from 'fflate'
 import { Context } from '@deepseek-ai/cordis'
 import { Storage } from '@deepseek-ai/dsh-storage'
 import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import QzhLogAnalysisService from '../src/index.ts'
+import QzhLogAnalysisService, { assessReport } from '../src/index.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { QzhCaseView } from '../src/types.ts'
 
@@ -233,4 +234,149 @@ describe('QzhLogAnalysisService', () => {
     const created = await service.createCase(sessionId, { productVersion: 'v9.9.9' })
     await expect(service.searchCode(sessionId, created.id, 'server', 'TOKEN_V2', undefined)).rejects.toThrow('不存在')
   })
+
+  it('assesses report structure: conclusion, evidence, and code location', () => {
+    const full = assessReport('# 结论\n根因是 X。\n\n## 事实证据\n路径 a.log。\n\n## 代码定位\nserver@abc123 src/a.go:10')
+    expect(full).toEqual({ conclusion: true, evidence: true, codeLocation: true })
+    const noCode = assessReport('# 结论\n根因是 X。\n\n## 事实证据\n路径 a.log。')
+    expect(noCode).toEqual({ conclusion: true, evidence: true, codeLocation: false })
+    const onlyConclusion = assessReport('# 结论\n根因是 X。')
+    expect(onlyConclusion).toEqual({ conclusion: true, evidence: false, codeLocation: false })
+    const empty = assessReport('   ')
+    expect(empty).toEqual({ conclusion: false, evidence: false, codeLocation: false })
+    // Plain text mentioning the words without headings also counts.
+    const inline = assessReport('结论：配置缺失。事实证据见 logs.txt。代码定位见 server@abc123。')
+    expect(inline).toEqual({ conclusion: true, evidence: true, codeLocation: true })
+  })
 })
+
+/** Build an evidence-enabled service against a fresh temp evidence root. */
+async function evidenceHarness(): Promise<{
+  service: QzhLogAnalysisService
+  sessionId: SessionId
+  caseId: QzhCaseView['id']
+  evidenceRoot: string
+}> {
+  const ctx = new Context()
+  contexts.push(ctx)
+  const evidenceRoot = mkdtempSync(join(tmpdir(), 'qzh-evidence-'))
+  const service = new QzhLogAnalysisService(ctx, { mirrorRoot: '/tmp/qzh-mirror', evidenceRoot })
+  const sessionId = 'session-evidence' as SessionId
+  const created = await service.createCase(sessionId, {})
+  return { service, sessionId, caseId: created.id, evidenceRoot }
+}
+
+/** Encode a zip with the given relative paths as base64. */
+function zipOf(files: Record<string, string>): string {
+  const data: Record<string, Uint8Array> = {}
+  for (const [path, content] of Object.entries(files)) data[path] = strToU8(content)
+  return Buffer.from(zipSync(data)).toString('base64')
+}
+
+describe('QzhLogAnalysisService evidence archive', () => {
+  it('stores an uploaded archive and serves list/search/read from the extracted tree', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    const saved = await service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'bundle.zip',
+      contentBase64: zipOf({
+        'server/logs/app.log': [
+          '2026-08-21 10:00:00 INFO start',
+          '2026-08-21 10:00:01 ERROR boom secret=abc',
+          '2026-08-21 10:00:02 INFO end',
+        ].join('\n'),
+        'worker/w.out': 'worker line',
+      }),
+    })
+    expect(saved.state).toBe('evidence-ready')
+
+    const tree = await service.listEvidenceTree(sessionId, caseId)
+    expect(tree.totalFiles).toBe(2)
+    const paths = tree.files.map(file => file.path)
+    expect(paths).toContain('server/logs/app.log')
+    expect(paths).toContain('worker/w.out')
+    const appLog = tree.files.find(file => file.path === 'server/logs/app.log')
+    expect(appLog?.sample).toContain('INFO start')
+
+    const hits = await service.searchEvidence(sessionId, caseId, 'ERROR', undefined, 100)
+    expect(hits.matches).toEqual([
+      { path: 'server/logs/app.log', line: 2, excerpt: '2026-08-21 10:00:01 ERROR boom [REDACTED]' },
+    ])
+    const filtered = await service.searchEvidence(sessionId, caseId, 'worker', 'worker', 100)
+    expect(filtered.matches).toHaveLength(1)
+
+    const read = await service.readEvidenceRange(sessionId, caseId, 'server/logs/app.log', 2, 2)
+    expect(read.totalLines).toBe(3)
+    expect(read.text).toBe('2026-08-21 10:00:01 ERROR boom [REDACTED]')
+    expect(read.path).toBe('server/logs/app.log')
+  })
+
+  it('rejects uploads from another session and reads from a foreign case', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    const upload = zipOf({ 'a.log': 'content' })
+    const other = 'session-other' as SessionId
+    await expect(service.uploadEvidenceArchive(other, caseId, {
+      filename: 'b.zip', contentBase64: upload,
+    })).rejects.toThrow('does not belong to session')
+    await expect(service.listEvidenceTree(other, caseId)).rejects.toThrow('does not belong to session')
+    expect(sessionId).not.toBe(other)
+  })
+
+  it('rejects a non-zip payload and a traversal entry', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    await expect(service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'not.zip', contentBase64: Buffer.from('not a zip').toString('base64'),
+    })).rejects.toThrow('must be a zip')
+
+    await expect(service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'evil.zip', contentBase64: zipOf({ '../escape.log': 'bad' }),
+    })).rejects.toThrow('invalid')
+  })
+
+  it('refuses a second upload and reports summary-only before any upload', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    await expect(service.listEvidenceTree(sessionId, caseId)).rejects.toThrow('summary-only')
+
+    const upload = zipOf({ 'a.log': 'one' })
+    await service.uploadEvidenceArchive(sessionId, caseId, { filename: 'a.zip', contentBase64: upload })
+    await expect(service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'b.zip', contentBase64: zipOf({ 'b.log': 'two' }),
+    })).rejects.toThrow('already has extracted evidence')
+    await expect(service.readEvidenceRange(sessionId, caseId, 'missing.log', undefined, undefined))
+      .rejects.toThrow('not found')
+  })
+
+  it('caps search hits and bounds line reads', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    const lines: string[] = []
+    for (let index = 1; index <= 50; index += 1) lines.push(`line ${index} marker`)
+    await service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'big.zip', contentBase64: zipOf({ 'big.log': lines.join('\n') }),
+    })
+    const capped = await service.searchEvidence(sessionId, caseId, 'marker', undefined, 10)
+    expect(capped.matches).toHaveLength(10)
+    expect(capped.truncated).toBe(true)
+
+    const read = await service.readEvidenceRange(sessionId, caseId, 'big.log', 1, 500)
+    expect(read.endLine).toBe(50)
+    expect(read.text.split('\n')).toHaveLength(50)
+  })
+})
+
+  it('serves the evidence tree via getEvidenceTree, degrading to the summary before upload', async () => {
+    const { service, sessionId, caseId } = await evidenceHarness()
+    await service.setEvidence(sessionId, caseId, {
+      consent: { approved: true, destination: 'internal-qzh-analysis' },
+      files: [{ path: 'server/logs/a.log', component: 'web-agent', stream: 'log', category: 'server', size: 5, sample: 'INFO x' }],
+      clusters: [],
+    })
+    const before = await service.getEvidenceTree(sessionId, caseId)
+    expect(before.totalFiles).toBe(1)
+    expect(before.files[0]?.path).toBe('server/logs/a.log')
+    expect(before.files[0]?.sample).toBe('INFO x')
+
+    await service.uploadEvidenceArchive(sessionId, caseId, {
+      filename: 'b.zip', contentBase64: zipOf({ 'server/logs/a.log': 'INFO x\nERROR boom' }),
+    })
+    const after = await service.getEvidenceTree(sessionId, caseId)
+    expect(after.files[0]?.sample).toContain('INFO x')
+  })

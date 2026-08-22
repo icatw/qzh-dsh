@@ -19,6 +19,6 @@ No direct effect. The package does not change model requests.
 ## Known Limitations and Deferred Work
 
 - **The current session is reused** — analysis continues the QZH session and the report is a normal assistant message in that transcript; no `qzh-analysis-*` session is created.
-- **Host integration is summary-only** — the browser never uploads a complete log file or QZH checkout. The Host stores the selected summary and exposes read-only source methods.
+- **Archive upload is opt-in per import** — when the selected import is a `.zip`, its original bytes are uploaded (`uploadEvidenceArchive`) right after the summary is accepted, giving the Agent `qzh_list_logs` / `qzh_search_logs` / `qzh_read_log_range` access to the full logs; a failed upload never blocks analysis, which proceeds on the submitted summary. Directory imports remain summary-only.
 - **No implicit outbound request** — importing files only updates browser state. The Host call requires both an imported log and the explicit outbound-consent checkbox.
 - **Three-stage entry** — the first viewport focuses on import; recognized logs then show the exact file, cluster, and excerpt payload; confirmation starts analysis in the current session.

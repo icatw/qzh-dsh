@@ -49,9 +49,11 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "@vscode/ripgrep": "^1.18.0",
+    "fflate": "^0.8.2",
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-storage": "workspace:^"
   },

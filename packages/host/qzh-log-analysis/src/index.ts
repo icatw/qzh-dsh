@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { readdirSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
+import {
+  mkdir, open, readFile, realpath, rename, rm, stat, writeFile,
+} from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { unzipSync } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -17,8 +23,9 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 import type {
-  QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
-  QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhRepository,
+  QzhArchiveUpload, QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
+  QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhEvidenceTreeFile, QzhFeedbackKind,
+  QzhLogCategory, QzhLogListResult, QzhLogMatch, QzhLogReadResult, QzhLogSearchResult, QzhRepository,
   QzhAnalysisStartResult,
 } from './types.ts'
 
@@ -28,10 +35,24 @@ export type * from './types.ts'
 export interface Config {
   /** Absolute directory containing `server/`, or the QZH checkout itself. */
   mirrorRoot: string
+  /** Absolute directory holding per-case extracted log evidence; created on demand. */
+  evidenceRoot?: string
   /** Maximum code bytes returned by one read operation. */
   maxReadBytes?: number
   /** Maximum matches returned by one search operation. */
   maxSearchResults?: number
+  /** Maximum archive bytes accepted by one evidence upload (base64 payload). */
+  maxEvidenceArchiveBytes?: number
+  /** Maximum bytes of one extracted evidence file retained. */
+  maxEvidenceFileBytes?: number
+  /** Maximum extracted files retained per case. */
+  maxEvidenceFilesPerCase?: number
+  /** Maximum text bytes returned by one evidence line-range read. */
+  maxLogReadBytes?: number
+  /** Maximum evidence search hits returned by one call. */
+  maxLogSearchResults?: number
+  /** Maximum evidence bytes scanned by one search call. */
+  maxLogSearchBytes?: number
   /** Storage backend name used for durable cases (defaults to the `json` backend). */
   storageBackend?: string
 }
@@ -43,6 +64,23 @@ const DEFAULT_MAX_SEARCH_RESULTS = 100
 const COMMAND_GRACE_MS = 3_000
 const STDERR_MAX_BYTES = 16 * 1024
 const EVIDENCE_DESTINATION = 'internal-qzh-analysis' as const
+const DEFAULT_MAX_EVIDENCE_ARCHIVE_BYTES = 256 * 1024 * 1024
+const DEFAULT_MAX_EVIDENCE_FILE_BYTES = 64 * 1024 * 1024
+const DEFAULT_MAX_EVIDENCE_FILES_PER_CASE = 500
+const DEFAULT_MAX_LOG_READ_BYTES = 64 * 1024
+const DEFAULT_MAX_LOG_SEARCH_RESULTS = 100
+const DEFAULT_MAX_LOG_SEARCH_BYTES = 256 * 1024 * 1024
+const EVIDENCE_MAX_TREE_FILES = 2_000
+const EVIDENCE_MAX_SEARCH_EXCERPT_BYTES = 200
+const EVIDENCE_MAX_LIST_SAMPLE_BYTES = 512
+const EVIDENCE_MAX_READ_LINES = 500
+const EVIDENCE_DIR_NAME = 'files'
+const EVIDENCE_ARCHIVE_NAME = 'archive.zip'
+
+/** Default evidence root under the harness home, mirroring sessions/storages. */
+function defaultEvidenceRoot(): string {
+  return join(resolveDshHome(), 'qzh-evidence')
+}
 
 function caseId(value: string): QzhCaseId {
   return value as QzhCaseId
@@ -50,6 +88,21 @@ function caseId(value: string): QzhCaseId {
 
 function now(): number {
   return Date.now()
+}
+
+/** Decode the browser's base64 archive payload, rejecting padding/trailer abuse. */
+function decodeArchiveContent(contentBase64: string): Buffer {
+  if (typeof contentBase64 !== 'string' || contentBase64.length === 0) {
+    throw new Error('QZH evidence archive payload is missing')
+  }
+  const content = Buffer.from(contentBase64, 'base64')
+  if (content.length === 0) throw new Error('QZH evidence archive payload is empty')
+  return content
+}
+
+/** Whether a filesystem error means absence; every non-ENOENT failure surfaces. */
+function isENOENT(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
 function trimOptional(value: string | undefined, maxBytes: number): string | undefined {
@@ -114,6 +167,28 @@ function ensureRepository(value: QzhRepository): QzhRepository {
   throw new Error(`QZH repository ${String(value)} is not supported`)
 }
 
+/** Assess how completely a report follows the mandated structure.
+ *
+ * A completed analysis must at least state a conclusion and back it with
+ * evidence and code location; the rest of the template may be absent without
+ * marking the report a failure. The check is structural (section headings),
+ * not semantic, so a report that covers the sections but draws a weak
+ * conclusion still passes — depth is the analyst's judgment, presence is the
+ * service's gate.
+ * @param report - the extracted assistant text.
+ * @returns which required sections are present.
+ */
+export function assessReport(report: string): { conclusion: boolean; evidence: boolean; codeLocation: boolean } {
+  const text = report.trim()
+  if (text.length === 0) return { conclusion: false, evidence: false, codeLocation: false }
+  const hasSection = (label: string): boolean => new RegExp(`(^|\\n)\\s*#{1,3}\\s*${label}`).test(text) || text.includes(label)
+  return {
+    conclusion: hasSection('结论'),
+    evidence: hasSection('事实证据'),
+    codeLocation: hasSection('代码定位'),
+  }
+}
+
 function ensureRelativePath(path: string): string {
   const normalized = path.replaceAll('\\', '/')
   if (normalized.length === 0 || normalized.startsWith('/') || normalized.includes('\0')) {
@@ -160,6 +235,13 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   private readonly maxReadBytes: number
   private readonly maxSearchResults: number
   private readonly mirrorRoot: string
+  private readonly evidenceRoot: string
+  private readonly maxEvidenceArchiveBytes: number
+  private readonly maxEvidenceFileBytes: number
+  private readonly maxEvidenceFilesPerCase: number
+  private readonly maxLogReadBytes: number
+  private readonly maxLogSearchResults: number
+  private readonly maxLogSearchBytes: number
   private readonly storageBackendName: string
   private readonly ownerCtx: Context
   private readonly analysisRuns = new Map<QzhCaseId, Promise<void>>()
@@ -174,8 +256,16 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.ownerCtx = ctx
     if (!isAbsolute(config.mirrorRoot)) throw new Error('QZH mirrorRoot must be absolute')
     this.mirrorRoot = resolve(config.mirrorRoot)
+    this.evidenceRoot = resolve(config.evidenceRoot ?? defaultEvidenceRoot())
+    if (!isAbsolute(this.evidenceRoot)) throw new Error('QZH evidenceRoot must be absolute')
     this.maxReadBytes = config.maxReadBytes ?? DEFAULT_MAX_READ_BYTES
     this.maxSearchResults = config.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS
+    this.maxEvidenceArchiveBytes = config.maxEvidenceArchiveBytes ?? DEFAULT_MAX_EVIDENCE_ARCHIVE_BYTES
+    this.maxEvidenceFileBytes = config.maxEvidenceFileBytes ?? DEFAULT_MAX_EVIDENCE_FILE_BYTES
+    this.maxEvidenceFilesPerCase = config.maxEvidenceFilesPerCase ?? DEFAULT_MAX_EVIDENCE_FILES_PER_CASE
+    this.maxLogReadBytes = config.maxLogReadBytes ?? DEFAULT_MAX_LOG_READ_BYTES
+    this.maxLogSearchResults = config.maxLogSearchResults ?? DEFAULT_MAX_LOG_SEARCH_RESULTS
+    this.maxLogSearchBytes = config.maxLogSearchBytes ?? DEFAULT_MAX_LOG_SEARCH_BYTES
     this.storageBackendName = config.storageBackend ?? 'json'
     const service = this
     const tools = ctx.get('tools')
@@ -185,7 +275,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       const promptDispose = systemPrompt.section({
         name: 'qzh:analysis-methodology',
         order: -20,
-        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_list_evidence、qzh_search_code、qzh_read_code 读取代码与证据；不得修改代码、执行 Shell 或猜测未提供的事实。代码检索限定在当前案例绑定的 QZH 版本（productVersion 对应的 git tag/commit），所有代码引用必须标注该版本的实际 commit。先调用 qzh_list_evidence 查看证据包内完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定的日志布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验案例上下文，对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的代码引用必须包含仓库、commit、文件路径和行号。',
+        text: '你是 QZH 故障分析 Agent。当前只接入 QZH 服务端代码，只使用 qzh_get_current_case、qzh_list_evidence、qzh_search_code、qzh_read_code、qzh_list_logs、qzh_search_logs、qzh_read_log_range 读取代码与证据；不得修改代码、执行 Shell 或猜测未提供的事实。代码检索限定在当前案例绑定的 QZH 版本（productVersion 对应的 git tag/commit），所有代码引用必须标注该版本的实际 commit。先调用 qzh_list_evidence 查看证据包内文件清单与样例；若案例已上传完整日志包，再用 qzh_list_logs 摸清现场目录结构（以真实相对路径为准），时间线关联、错误上下文、跨文件因果链需要完整日志时用 qzh_search_logs 定向搜索或 qzh_read_log_range 按行读取（每次有预算，不要整包扫描）。再调用 qzh_get_current_case 校验案例上下文，对齐日志时间和错误链，定位调用路径，最后输出中文报告，明确区分事实、推断、证据引用、可信度、信息缺口和人工验证步骤。报告中的日志引用必须使用证据包内的真实相对路径与行号（path:line），代码引用必须包含仓库、commit、文件路径和行号。',
       })
       const currentCaseDispose = tools.register(defineTool({
         name: 'qzh_get_current_case',
@@ -256,7 +346,79 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
-      return () => { promptDispose(); currentCaseDispose(); searchDispose(); listEvidenceDispose(); readDispose() }
+      const listLogsDispose = tools.register(defineTool({
+        name: 'qzh_list_logs',
+        description: '列出当前案例证据包解压后的完整日志文件树（真实相对路径、大小、首行样例）和异常聚类，用于摸清现场目录结构后定向读取。仅在案例上传了完整日志包时可用；未上传时报告"summary-only"并用 qzh_list_evidence 的样例。case_id 可省略，Host 会绑定当前会话案例。',
+        parameters: {
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+        },
+        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+        isConcurrencySafe: () => true,
+        async execute(args, exec) {
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH log listing is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          const result = await service.listEvidenceTree(sessionId, record.id)
+          return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
+        },
+      }))
+      const searchLogsDispose = tools.register(defineTool({
+        name: 'qzh_search_logs',
+        description: '在案例证据包内按固定字符串定向搜索日志，返回命中的真实相对路径、行号和脱敏摘录。用于定位错误文本、时间戳或关键字在哪个文件的哪一行，随后用 qzh_read_log_range 读取上下文。扫描有字节预算，命中过多会截断。case_id 可省略，Host 会绑定当前会话案例。',
+        parameters: {
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+          query: { type: 'string', required: true, description: '要搜索的固定字符串（错误文本、时间戳片段或关键字）。' },
+          path_filter: { type: 'string', description: '可选：限定搜索的相对路径前缀（如 server/logs）。' },
+          max_results: { type: 'number', description: '可选：返回命中上限，默认 100。' },
+        },
+        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+        isConcurrencySafe: () => true,
+        async execute(args, exec) {
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH log search is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          const result = await service.searchEvidence(
+            sessionId,
+            record.id,
+            typeof args.query === 'string' ? args.query : '',
+            typeof args.path_filter === 'string' ? args.path_filter : undefined,
+            typeof args.max_results === 'number' ? args.max_results : service.maxLogSearchResults,
+          )
+          return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
+        },
+      }))
+      const readLogsDispose = tools.register(defineTool({
+        name: 'qzh_read_log_range',
+        description: '从案例证据包中按真实相对路径读取有限行号范围的日志内容（脱敏，最多 500 行）。先调用 qzh_list_logs 确认路径与布局，或用 qzh_search_logs 定位行号后再读取上下文。case_id 可省略，Host 会绑定当前会话案例。',
+        parameters: {
+          case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
+          path: { type: 'string', required: true, description: '证据包内相对路径。' },
+          start_line: { type: 'number', description: '起始行号，默认 1。' },
+          end_line: { type: 'number', description: '结束行号，最多读取 500 行。' },
+        },
+        output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+        isConcurrencySafe: () => true,
+        async execute(args, exec) {
+          const agent = exec.agent
+          if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH log reading is available only in a qzh Agent session')
+          const sessionId = agent.session.header.id
+          const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
+          const result = await service.readEvidenceRange(
+            sessionId,
+            record.id,
+            typeof args.path === 'string' ? args.path : '',
+            typeof args.start_line === 'number' ? args.start_line : undefined,
+            typeof args.end_line === 'number' ? args.end_line : undefined,
+          )
+          return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
+        },
+      }))
+      return () => {
+        promptDispose(); currentCaseDispose(); searchDispose(); listEvidenceDispose(); readDispose()
+        listLogsDispose(); searchLogsDispose(); readLogsDispose()
+      }
     }, 'qzh-log-analysis:agent-capabilities')
   }
 
@@ -287,6 +449,112 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.activeCases.set(sessionId, id)
     await this.persistCase(id)
     return { ...record }
+  }
+
+  /** Durably store the original log archive for one case as an extracted tree.
+   *
+   * The summary (`setEvidence`) and the full archive are decoupled: analysis
+   * may start on the summary alone, and this call lands the full bundle for
+   * on-demand `qzh_list_logs` / `qzh_search_logs` / `qzh_read_log_range`.
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @param upload - base64-encoded zip payload.
+   * @returns updated case view.
+   */
+  @Remote('uploadEvidenceArchive')
+  async uploadEvidenceArchive(sessionId: SessionId, id: QzhCaseId, upload: QzhArchiveUpload): Promise<QzhCaseView> {
+    await this.casesUnit()
+    this.requireCase(sessionId, id)
+    const content = decodeArchiveContent(upload.contentBase64)
+    if (Buffer.byteLength(content) > this.maxEvidenceArchiveBytes) {
+      throw new Error(`QZH evidence archive exceeds ${String(this.maxEvidenceArchiveBytes)} bytes`)
+    }
+    if (content.length < 4 || content[0] !== 0x50 || content[1] !== 0x4b) {
+      throw new Error('QZH evidence archive must be a zip file')
+    }
+    const caseDir = join(this.evidenceRoot, String(id))
+    const filesDir = join(caseDir, EVIDENCE_DIR_NAME)
+    const staging = join(this.evidenceRoot, `${String(id)}.staging-${randomUUID()}`)
+    try {
+      // `unzipSync` yields raw file bytes per entry; directory/symlink entries
+      // are rejected by the path guard below (`dir/` splits into an empty
+      // segment; a symlink entry would land as a plain file whose content is
+      // the target string, never a real link). The extracted tree is further
+      // containment-checked on every read via realpath/isWithin.
+      const entries = unzipSync(content)
+      const fileNames = Object.keys(entries)
+      if (fileNames.length === 0) throw new Error('QZH evidence archive contains no files')
+      if (fileNames.length > this.maxEvidenceFilesPerCase) {
+        throw new Error(`QZH evidence archive exceeds ${String(this.maxEvidenceFilesPerCase)} files`)
+      }
+      await mkdir(staging, { recursive: true, mode: 0o700 })
+      for (const name of fileNames) {
+        const safe = evidencePath(name)
+        const bytes = entries[name]
+        if (bytes === undefined) continue
+        if (Buffer.byteLength(bytes) > this.maxEvidenceFileBytes) {
+          throw new Error(`QZH evidence file ${safe} exceeds ${String(this.maxEvidenceFileBytes)} bytes`)
+        }
+        const target = join(staging, safe)
+        await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+        await writeFile(target, bytes, { mode: 0o600 })
+      }
+      // The staging tree is fully written before any publication step: a
+      // failure anywhere above leaves the durable case evidence untouched.
+      await mkdir(this.evidenceRoot, { recursive: true, mode: 0o700 })
+      await mkdir(caseDir, { recursive: true, mode: 0o700 })
+      try {
+        await stat(filesDir)
+        throw new Error(`QZH case ${String(id)} already has extracted evidence`)
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
+      await rename(staging, filesDir)
+      await writeFile(join(caseDir, EVIDENCE_ARCHIVE_NAME), content, { mode: 0o600 })
+      const timestamp = now()
+      const next: CaseRecord = { ...this.requireCase(sessionId, id), state: 'evidence-ready', updatedAt: timestamp }
+      this.cases.set(id, next)
+      await this.persistCase(id)
+      return { ...next }
+    } catch (error: unknown) {
+      await rm(staging, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
+  }
+
+  /** List the extracted evidence tree for one case (UI projection of the
+   *  `qzh_list_logs` tool; falls back to the submitted summary files when no
+   *  archive was uploaded).
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @returns evidence tree plus clusters.
+   */
+  @Remote('getEvidenceTree')
+  async getEvidenceTree(sessionId: SessionId, id: QzhCaseId): Promise<QzhLogListResult> {
+    await this.casesUnit()
+    const record = this.requireCase(sessionId, id)
+    try {
+      return { ...await this.listEvidenceTree(sessionId, id), summaryOnly: false }
+    } catch (error: unknown) {
+      if (error instanceof Error && /summary-only/.test(error.message)) {
+        return {
+          files: (record.evidence?.files ?? []).map(file => ({
+            path: file.path,
+            size: file.size,
+            component: file.component,
+            stream: file.stream,
+            category: file.category,
+            ...(file.sample === undefined ? {} : { sample: file.sample }),
+          })),
+          totalFiles: record.evidence?.files.length ?? 0,
+          totalBytes: record.evidence?.files.reduce((sum, file) => sum + file.size, 0) ?? 0,
+          truncated: false,
+          clusters: record.evidence?.clusters ?? [],
+          summaryOnly: true,
+        }
+      }
+      throw error
+    }
   }
 
   /** Attach browser-approved parsed evidence; raw logs remain opt-in.
@@ -325,7 +593,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async startAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<QzhAnalysisStartResult> {
     const record = this.requireCase(sessionId, id)
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
-    if ((record.state === 'analyzing' || record.state === 'completed') && record.analysisSessionId !== undefined) {
+    if ((record.state === 'analyzing' || record.state === 'completed' || record.state === 'completed_with_limitations') && record.analysisSessionId !== undefined) {
       return { case: { ...record }, sessionId: record.analysisSessionId }
     }
     const existing = this.analysisRuns.get(id)
@@ -520,6 +788,209 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     return record
   }
 
+  /** Resolve and validate the extracted evidence tree for one case.
+   *
+   * Ownership is enforced by the caller via `requireCase` BEFORE this path
+   * resolves; here only the tree's existence and containment are checked.
+   * @param record - the authorized case record.
+   * @returns canonical absolute path of the case evidence `files/` directory.
+   */
+  private async evidenceFilesDir(record: CaseRecord): Promise<string> {
+    const dir = join(this.evidenceRoot, String(record.id), EVIDENCE_DIR_NAME)
+    let real: string
+    try {
+      real = await realpath(dir)
+    } catch (error: unknown) {
+      if (isENOENT(error)) throw new Error(`QZH case ${String(record.id)} has no full log evidence (summary-only mode)`)
+      throw error
+    }
+    if (!this.isWithin(await realpath(this.evidenceRoot), real)) {
+      throw new Error('QZH evidence tree resolves outside the configured evidence root')
+    }
+    return real
+  }
+
+  /** Validate one evidence-relative path and resolve it inside the case tree.
+   * @param record - the authorized case record.
+   * @param path - evidence-relative path from a tool argument.
+   * @returns canonical absolute file path, guaranteed inside the case tree.
+   */
+  private async resolveEvidenceFile(record: CaseRecord, path: string): Promise<string> {
+    const root = await this.evidenceFilesDir(record)
+    const safe = ensureRelativePath(path)
+    const candidate = join(root, safe)
+    let real: string
+    try {
+      real = await realpath(candidate)
+    } catch (error: unknown) {
+      if (isENOENT(error)) throw new Error(`QZH evidence file not found: ${safe}`)
+      throw error
+    }
+    if (!this.isWithin(root, real)) throw new Error('QZH evidence path escapes the case evidence tree')
+    const info = await stat(real)
+    if (!info.isFile()) throw new Error(`QZH evidence path is not a file: ${safe}`)
+    return real
+  }
+
+  /** Recursively list the extracted evidence tree with layout samples.
+   * @param sessionId - owning DSH session (ownership re-checked here).
+   * @param id - case identifier.
+   * @returns bounded file tree plus the submitted clusters.
+   */
+  async listEvidenceTree(sessionId: SessionId, id: QzhCaseId): Promise<QzhLogListResult> {
+    const record = this.requireCase(sessionId, id)
+    const root = await this.evidenceFilesDir(record)
+    const files: QzhEvidenceTreeFile[] = []
+    let totalBytes = 0
+    let truncated = false
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      if (truncated || files.length >= EVIDENCE_MAX_TREE_FILES) { truncated = true; return }
+      let entries: Dirent[] = []
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
+      for (const entry of entries) {
+        if (truncated || files.length >= EVIDENCE_MAX_TREE_FILES) { truncated = true; return }
+        const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+        if (entry.isDirectory()) { await walk(join(dir, entry.name), rel); continue }
+        if (!entry.isFile()) continue
+        const abs = join(dir, entry.name)
+        const info = await stat(abs)
+        totalBytes += info.size
+        const sample = await this.firstLineSample(abs)
+        files.push({
+          path: rel,
+          size: info.size,
+          component: record.evidence?.files.find(file => file.path === rel)?.component ?? 'log',
+          stream: record.evidence?.files.find(file => file.path === rel)?.stream ?? 'log',
+          category: record.evidence?.files.find(file => file.path === rel)?.category ?? 'server',
+          ...(sample === undefined ? {} : { sample }),
+        })
+      }
+    }
+    await walk(root, '')
+    return {
+      files,
+      totalFiles: files.length,
+      totalBytes,
+      truncated,
+      clusters: record.evidence?.clusters ?? [],
+    }
+  }
+
+  /** Read a bounded first-line sample from an evidence file. */
+  private async firstLineSample(file: string): Promise<string | undefined> {
+    const handle = await open(file, 'r')
+    try {
+      const buffer = Buffer.alloc(EVIDENCE_MAX_LIST_SAMPLE_BYTES + 1)
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+      const head = buffer.subarray(0, bytesRead).toString('utf8')
+      const line = head.split('\n', 1)[0] as string
+      const trimmed = redactSensitiveText(line).trim()
+      return trimmed.length === 0 ? undefined : trimmed.slice(0, EVIDENCE_MAX_LIST_SAMPLE_BYTES)
+    } finally {
+      await handle.close()
+    }
+  }
+
+  /** Fixed-string search over the extracted evidence tree (bounded).
+   * @param sessionId - owning DSH session (ownership re-checked here).
+   * @param id - case identifier.
+   * @param query - the literal text to search for.
+   * @param pathFilter - optional relative-path prefix limiting the scan.
+   * @param maxResults - caller cap on returned hits (also capped by config).
+   * @returns bounded matches with redacted excerpts.
+   */
+  async searchEvidence(
+    sessionId: SessionId,
+    id: QzhCaseId,
+    query: string,
+    pathFilter: string | undefined,
+    maxResults: number,
+  ): Promise<QzhLogSearchResult> {
+    const record = this.requireCase(sessionId, id)
+    const root = await this.evidenceFilesDir(record)
+    const needle = query
+    const limit = Math.min(Math.max(1, maxResults), this.maxLogSearchResults)
+    const matches: QzhLogMatch[] = []
+    let scanned = 0
+    let truncated = false
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      if (truncated || matches.length >= limit) { truncated = true; return }
+      let entries: Dirent[] = []
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
+      for (const entry of entries) {
+        if (truncated || matches.length >= limit) { truncated = true; return }
+        const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+        if (entry.isDirectory()) { await walk(join(dir, entry.name), rel); continue }
+        if (!entry.isFile()) continue
+        if (pathFilter !== undefined && !rel.startsWith(pathFilter)) continue
+        const abs = join(dir, entry.name)
+        const info = await stat(abs)
+        if (info.size > this.maxEvidenceFileBytes) continue
+        if (scanned + info.size > this.maxLogSearchBytes) { truncated = true; return }
+        scanned += info.size
+        const text = await readFile(abs, 'utf8')
+        const lines = text.split('\n')
+        for (let index = 0; index < lines.length; index += 1) {
+          if (matches.length >= limit) { truncated = true; return }
+          const line = lines[index] as string
+          if (!line.includes(needle)) continue
+          matches.push({
+            path: rel,
+            line: index + 1,
+            excerpt: redactSensitiveText(line).slice(0, EVIDENCE_MAX_SEARCH_EXCERPT_BYTES),
+          })
+        }
+      }
+    }
+    await walk(root, '')
+    return { query: needle, matches, truncated }
+  }
+
+  /** Read a bounded line range from one extracted evidence file.
+   * @param sessionId - owning DSH session (ownership re-checked here).
+   * @param id - case identifier.
+   * @param path - evidence-relative path.
+   * @param startLine - 1-based start; defaults to 1.
+   * @param endLine - inclusive end; capped at start + 499.
+   * @returns redacted line-range text plus the file's total line count.
+   */
+  async readEvidenceRange(
+    sessionId: SessionId,
+    id: QzhCaseId,
+    path: string,
+    startLine: number | undefined,
+    endLine: number | undefined,
+  ): Promise<QzhLogReadResult> {
+    const record = this.requireCase(sessionId, id)
+    const file = await this.resolveEvidenceFile(record, path)
+    const info = await stat(file)
+    if (info.size > this.maxEvidenceFileBytes) {
+      throw new Error(`QZH evidence file ${path} exceeds ${String(this.maxEvidenceFileBytes)} bytes`)
+    }
+    const text = await readFile(file, 'utf8')
+    const lines = text.split('\n')
+    const first = Number.isInteger(startLine) && (startLine as number) > 0 ? startLine as number : 1
+    const defaultLast = first + EVIDENCE_MAX_READ_LINES - 1
+    const requestedEnd = endLine === undefined ? defaultLast : endLine
+    const last = Number.isInteger(requestedEnd)
+      ? Math.min(Math.max(requestedEnd as number, first), first + EVIDENCE_MAX_READ_LINES - 1, lines.length)
+      : Math.min(defaultLast, lines.length)
+    const slice = lines.slice(first - 1, last)
+    const body = redactSensitiveText(slice.join('\n'))
+    if (Buffer.byteLength(body, 'utf8') > this.maxLogReadBytes) {
+      throw new Error(`QZH evidence range exceeds ${String(this.maxLogReadBytes)} bytes; request a narrower line range`)
+    }
+    return { path, startLine: first, endLine: last, totalLines: lines.length, text: body }
+  }
+
   /** Resolve the latest case in a session for model-facing tools. */
   private resolveToolCase(sessionId: SessionId, requestedId?: string): CaseRecord {
     const requested = requestedId?.trim()
@@ -574,14 +1045,17 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         .filter(text => text.length > 0)
         .at(-1)
       const latest = this.requireCase(sessionId, id)
+      const assessment = report === undefined ? { conclusion: false, evidence: false, codeLocation: false } : assessReport(report)
       const completed: CaseRecord = {
         ...latest,
-        state: report === undefined ? 'failed' : 'completed',
+        state: !assessment.conclusion ? 'failed' : assessment.evidence && assessment.codeLocation ? 'completed' : 'completed_with_limitations',
         updatedAt: now(),
         ...(report === undefined ? { analysisError: 'DSH Agent 未返回文本报告' } : { report }),
       }
       if (report === undefined) delete completed.report
-      else delete completed.analysisError
+      else if (completed.state === 'completed_with_limitations') {
+        completed.analysisError = `报告缺少必要结构（结论${assessment.conclusion ? '✓' : '✗'} 事实证据${assessment.evidence ? '✓' : '✗'} 代码定位${assessment.codeLocation ? '✓' : '✗'}），已按受限完成保留。`
+      }
       this.cases.set(id, completed)
       await this.persistCase(id)
     } catch (error: unknown) {

@@ -3,7 +3,9 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind, QzhLogListResult,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhComposer } from './QzhComposer.tsx'
 import { QzhEvidenceDock } from './QzhEvidenceDock.tsx'
 import { QzhLogAnalysisSection } from './QzhLogAnalysisSection.tsx'
@@ -40,7 +42,9 @@ export function apply(ctx: ClientContext): void {
   const actions = (sessionId: SessionId) => ({
     createCase: (request: QzhCreateCaseRequest): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.createCase(sessionId, request)),
     setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setEvidence(sessionId, id, evidence)),
+    uploadEvidenceArchive: (id: QzhCaseView['id'], upload: QzhArchiveUpload): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.uploadEvidenceArchive(sessionId, id, upload)),
     getCase: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.getCase(sessionId, id)),
+    getEvidenceTree: (id: QzhCaseView['id']): Promise<QzhLogListResult> => remoteValue(ctx.remote.qzhLogAnalysis.getEvidenceTree(sessionId, id)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
     setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setFeedback(sessionId, id, kind, comment)),
     renameSession: async (title: string): Promise<void> => {
@@ -80,6 +84,7 @@ export function apply(ctx: ClientContext): void {
     inject: (sessionId) => ({
       startAnalysis: actions(sessionId).startAnalysis,
       getCase: actions(sessionId).getCase,
+      getEvidenceTree: actions(sessionId).getEvidenceTree,
       setFeedback: actions(sessionId).setFeedback,
       renameSession: actions(sessionId).renameSession,
     }),

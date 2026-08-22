@@ -31,7 +31,7 @@ export function QzhConsentPanel({
       </div>
       <label className={css.consentLabel}>
         <input type="checkbox" checked={consent} onChange={event => { onConsent(event.currentTarget.checked) }} />
-        <span>我确认将以上文件清单、异常聚类和错误样例发送到公司内网 QZH 分析 Host；原始日志不会自动上传。</span>
+        <span>我确认将以上文件清单、异常聚类、错误样例以及上传的日志包（若选择 zip）发送到公司内网 QZH 分析 Host，用于故障分析。</span>
       </label>
     </section>
   )

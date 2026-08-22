@@ -34,7 +34,7 @@ export const SIDEBAR_AUTO_COLLAPSE = 1024
 /** Details drag clamp floor. */
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */
-export const DETAILS_MAX = 520
+export const DETAILS_MAX = 720
 /** Details width before any user drag. */
 export const DETAILS_DEFAULT = 360
 

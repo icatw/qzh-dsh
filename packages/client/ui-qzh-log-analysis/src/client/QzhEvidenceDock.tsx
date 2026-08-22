@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhCaseView, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhCaseView, QzhFeedbackKind, QzhLogListResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
+import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
 import { QzhEvidencePreview } from './QzhEvidencePreview.tsx'
 import type { QzhSessionState, createQzhSessionStore } from './store.ts'
 import css from './QzhLogAnalysisSection.module.css'
@@ -10,6 +11,7 @@ import css from './QzhLogAnalysisSection.module.css'
 interface Injected {
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly getEvidenceTree: (id: QzhCaseView['id']) => Promise<QzhLogListResult>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
 }
@@ -17,12 +19,21 @@ interface Injected {
 type Props = PropsRuntime<'conversation.details.qzh'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & Injected
 
 /** QZH evidence and progress panel rendered in DSH's right details column. */
-export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, startAnalysis, getCase, setFeedback, renameSession }: Props) {
+export function QzhEvidenceDock({
+  sessionId, useSessions, useStore, actions, startAnalysis, getCase, getEvidenceTree, setFeedback, renameSession,
+}: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
   const state = useStore((value: QzhSessionState) => value)
   const caseId = state.caseView?.id
   const caseState = state.caseView?.state
+  const [tree, setTree] = useState<QzhLogListResult | undefined>()
+  useEffect(() => {
+    if (preset !== 'qzh' || caseId === undefined) return
+    let disposed = false
+    void getEvidenceTree(caseId).then(result => { if (!disposed) setTree(result) }).catch(() => {})
+    return () => { disposed = true }
+  }, [caseId, getEvidenceTree, preset])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
     if (sessionSummary?.title === undefined) void renameSession('QZH 日志分析')
@@ -60,6 +71,14 @@ export function QzhEvidenceDock({ sessionId, useSessions, useStore, actions, sta
     }
   }
   return state.panelOpen
-    ? <div className={css.dockExpanded}><QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} /><QzhEvidencePreview evidence={evidence} /></div>
+    ? (
+      <div className={css.dockExpanded}>
+        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
+        {tree !== undefined && (
+          <QzhEvidenceFiles files={tree.files} clusters={tree.clusters} summaryOnly={tree.summaryOnly === true} />
+        )}
+        <QzhEvidencePreview evidence={evidence} />
+      </div>
+    )
     : <div className={css.dockCollapsed} role="status"><span>QZH 只读分析 · {state.caseView.state} · {state.entries.length} 个日志文件</span><button type="button" onClick={() => { actions.setPanelOpen(true) }}>查看证据</button></div>
 }

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
 import { decodeZipLogMember, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
@@ -16,6 +18,7 @@ import css from './QzhLogAnalysisSection.module.css'
 interface QzhActions {
   readonly createCase: (request: QzhCreateCaseRequest) => Promise<QzhCaseView>
   readonly setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary) => Promise<QzhCaseView>
+  readonly uploadEvidenceArchive: (id: QzhCaseView['id'], upload: QzhArchiveUpload) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
@@ -24,6 +27,16 @@ interface QzhActions {
 
 type Props = PropsRuntime<'conversation.hero.empty'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & QzhActions
 const MAX_FILES = 30
+
+/** Encode bytes as base64 in chunks (btoa is bounded by call-stack size). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk))
+  }
+  return btoa(binary)
+}
 
 function fileEntry(file: File, preview: string, category: QzhLogCategory): ImportedLogEntry | undefined {
   if (!/\.(log|txt|out)$/i.test(file.name)) return undefined
@@ -34,10 +47,16 @@ function fileEntry(file: File, preview: string, category: QzhLogCategory): Impor
 }
 
 /** Full blank-state QZH evidence flow. The normal conversation shell owns the frame. */
-export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, actions, createCase, setEvidence, getCase, startAnalysis, setFeedback, renameSession }: Props) {
+export function QzhLogAnalysisSection({
+  sessionId, useSessions, useStore, actions, createCase, setEvidence, uploadEvidenceArchive,
+  getCase, startAnalysis, setFeedback, renameSession,
+}: Props) {
   const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
   const state = useStore((value: QzhSessionState) => value)
   const [analysisRunning, setAnalysisRunning] = useState(false)
+  /** Original log archive retained for the durable full-evidence upload. A
+   *  ref (not state) so an immediate submit after import always sees it. */
+  const archiveRef = useRef<QzhArchiveUpload | undefined>(undefined)
   const caseId = state.caseView?.id
   const caseState = state.caseView?.state
 
@@ -72,6 +91,7 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
       for (const file of [...files].slice(0, MAX_FILES)) {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const bytes = new Uint8Array(await file.arrayBuffer())
+          archiveRef.current = { filename: file.name, contentBase64: bytesToBase64(bytes) }
           const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
           for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
@@ -107,6 +127,17 @@ export function QzhLogAnalysisSection({ sessionId, useSessions, useStore, action
       })
       const saved = await setEvidence(created.id, evidence)
       actions.setCaseView(saved)
+      // Full-bundle upload is best-effort and never blocks analysis: the
+      // summary already started the case, and list/search/read tools degrade
+      // to summary-only until the archive lands.
+      if (archiveRef.current !== undefined) {
+        actions.setStatus('正在上传完整日志包（摘要分析可先开始）…')
+        void uploadEvidenceArchive(saved.id, archiveRef.current)
+          .then(actions.setCaseView)
+          .catch(() => {
+            actions.setStatus('完整日志包上传失败，本次分析将基于提交的摘要。')
+          })
+      }
       const started = await startAnalysis(saved.id)
       actions.setCaseView(started)
       actions.setPanelOpen(true)
