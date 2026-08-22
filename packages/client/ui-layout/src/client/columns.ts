@@ -17,8 +17,11 @@
 export interface Columns { sidebar: number; center: number; details: number }
 
 // Contract-frozen geometry: the three-column concession chain's fixed points.
-/** Center column floor; only the final fallback may go below it. */
-export const CENTER_MIN = 640
+/** Center column floor; only the final fallback may go below it. Lowered from
+ * 640 so the details column can serve content that needs real width (e.g. the
+ * QZH analysis report) on 1440-class screens: 280 sidebar + 560 center +
+ * 600 details. Conversation messages still wrap comfortably at 560px. */
+export const CENTER_MIN = 560
 /** Sidebar drag clamp floor. */
 export const SIDEBAR_MIN = 264
 /** Sidebar drag clamp ceiling. */
