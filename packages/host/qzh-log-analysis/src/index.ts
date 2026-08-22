@@ -512,7 +512,12 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       await rename(staging, filesDir)
       await writeFile(join(caseDir, EVIDENCE_ARCHIVE_NAME), content, { mode: 0o600 })
       const timestamp = now()
-      const next: CaseRecord = { ...this.requireCase(sessionId, id), state: 'evidence-ready', updatedAt: timestamp }
+      const next: CaseRecord = {
+        ...this.requireCase(sessionId, id),
+        state: 'evidence-ready',
+        updatedAt: timestamp,
+        archiveFilename: upload.filename,
+      }
       this.cases.set(id, next)
       await this.persistCase(id)
       return { ...next }
@@ -533,8 +538,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async getEvidenceTree(sessionId: SessionId, id: QzhCaseId): Promise<QzhLogListResult> {
     await this.casesUnit()
     const record = this.requireCase(sessionId, id)
+    const archive = await this.archiveMetadata(record)
     try {
-      return { ...await this.listEvidenceTree(sessionId, id), summaryOnly: false }
+      return { ...await this.listEvidenceTree(sessionId, id), summaryOnly: false, ...(archive === undefined ? {} : { archive }) }
     } catch (error: unknown) {
       if (error instanceof Error && /summary-only/.test(error.message)) {
         return {
@@ -553,6 +559,22 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           summaryOnly: true,
         }
       }
+      throw error
+    }
+  }
+
+  /** Read the uploaded bundle's display metadata, when one exists.
+   * @param record - the authorized case record.
+   * @returns filename and byte size of the stored archive, or undefined.
+   */
+  private async archiveMetadata(record: CaseRecord): Promise<{ filename: string; size: number } | undefined> {
+    if (record.archiveFilename === undefined) return undefined
+    const archivePath = join(this.evidenceRoot, String(record.id), EVIDENCE_ARCHIVE_NAME)
+    try {
+      const info = await stat(archivePath)
+      return { filename: record.archiveFilename, size: info.size }
+    } catch (error: unknown) {
+      if (isENOENT(error)) return undefined
       throw error
     }
   }

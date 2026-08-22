@@ -78,6 +78,8 @@ export interface QzhCaseView {
   readonly report?: string
   /** Stable failure detail when the DSH analysis turn cannot complete. */
   readonly analysisError?: string
+  /** Original name of the uploaded log bundle (audit label; never a path). */
+  readonly archiveFilename?: string
   /** User verdict on the completed report. */
   readonly feedback?: QzhFeedbackKind
   /** Optional free-text note attached to the feedback. */
@@ -148,6 +150,8 @@ export interface QzhLogMatch {
 /** Evidence tree + clusters served by the list tool. */
 export interface QzhLogListResult {
   readonly root?: string
+  /** Uploaded bundle metadata, present only when the full archive landed. */
+  readonly archive?: { readonly filename: string; readonly size: number }
   readonly files: readonly QzhEvidenceTreeFile[]
   readonly totalFiles: number
   readonly totalBytes: number

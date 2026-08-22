@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import type { QzhEvidenceCluster, QzhEvidenceTreeFile } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhEvidenceCluster, QzhEvidenceTreeFile, QzhLogListResult } from '@deepseek-ai/dsh-api-remotes/client'
 import css from './QzhLogAnalysisSection.module.css'
 
 interface Props {
   readonly files: readonly QzhEvidenceTreeFile[]
   readonly clusters: readonly QzhEvidenceCluster[]
+  /** Uploaded bundle metadata; absent when no full archive was uploaded. */
+  readonly archive?: QzhLogListResult['archive']
   /** True when only the submitted summary is available (no full archive). */
   readonly summaryOnly: boolean
 }
@@ -17,12 +19,20 @@ function formatBytes(bytes: number): string {
 }
 
 /** Collapsible evidence-file listing for the QZH details dock. */
-export function QzhEvidenceFiles({ files, clusters, summaryOnly }: Props) {
+export function QzhEvidenceFiles({ files, clusters, archive, summaryOnly }: Props) {
   const [open, setOpen] = useState(false)
-  if (files.length === 0) return null
+  if (files.length === 0 && archive === undefined) return null
   const label = summaryOnly ? '证据摘要' : '证据文件'
   return (
     <section className={css.evidenceSection} aria-label="证据文件">
+      {archive !== undefined && (
+        <div className={css.evidenceRow} data-evidence-kind="archive">
+          <div className={css.evidenceMain}>
+            <span title={archive.filename}>📦 {archive.filename}</span>
+            <span>{formatBytes(archive.size)} · 完整日志包</span>
+          </div>
+        </div>
+      )}
       <button type="button" className={css.evidenceToggle} onClick={() => { setOpen(current => !current) }}>
         <span>{label}（{files.length}）{clusters.length > 0 ? ` · ${String(clusters.length)} 类异常` : ''}</span>
         <span className={css.evidenceToggleAction}>{open ? '收起' : '展开'}</span>

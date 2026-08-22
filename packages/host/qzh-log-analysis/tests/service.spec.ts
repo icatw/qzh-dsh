@@ -288,6 +288,7 @@ describe('QzhLogAnalysisService evidence archive', () => {
       }),
     })
     expect(saved.state).toBe('evidence-ready')
+    expect(saved.archiveFilename).toBe('bundle.zip')
 
     const tree = await service.listEvidenceTree(sessionId, caseId)
     expect(tree.totalFiles).toBe(2)
@@ -296,6 +297,12 @@ describe('QzhLogAnalysisService evidence archive', () => {
     expect(paths).toContain('worker/w.out')
     const appLog = tree.files.find(file => file.path === 'server/logs/app.log')
     expect(appLog?.sample).toContain('INFO start')
+
+    // The UI projection carries the uploaded bundle's display metadata.
+    const view = await service.getEvidenceTree(sessionId, caseId)
+    expect(view.summaryOnly).toBe(false)
+    expect(view.archive).toMatchObject({ filename: 'bundle.zip' })
+    expect(view.archive?.size).toBeGreaterThan(0)
 
     const hits = await service.searchEvidence(sessionId, caseId, 'ERROR', undefined, 100)
     expect(hits.matches).toEqual([

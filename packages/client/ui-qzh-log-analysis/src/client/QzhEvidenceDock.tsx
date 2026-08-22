@@ -79,7 +79,7 @@ export function QzhEvidenceDock({
       <div className={css.dockExpanded}>
         <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
         {tree !== undefined && (
-          <QzhEvidenceFiles files={tree.files} clusters={tree.clusters} summaryOnly={tree.summaryOnly === true} />
+          <QzhEvidenceFiles files={tree.files} clusters={tree.clusters} archive={tree.archive} summaryOnly={tree.summaryOnly === true} />
         )}
         <QzhEvidencePreview evidence={evidence} />
       </div>
