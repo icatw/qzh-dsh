@@ -180,6 +180,17 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param workspaceId - explicit target Workspace for scoped actions.
    */
   startSession(workspaceId?: WorkspaceId, agentPreset?: string): void {
+    // A QZH session is one uploaded evidence case, not a directory: it is
+    // minted without a workspace or cwd so it groups under "Ungrouped" in the
+    // sidebar instead of a local directory account.
+    if (agentPreset === 'qzh') {
+      const attempt = this.sessions.create({ agentPreset: 'qzh' })
+      void attempt.then(
+        (sessionId) => { this.sessions.open(sessionId) },
+        (reason: unknown) => { console.warn('new session failed:', reason) },
+      )
+      return
+    }
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
     const currentWorkspaceId = current === undefined

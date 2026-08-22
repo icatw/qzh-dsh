@@ -35,10 +35,11 @@ export interface SessionsPort {
   readonly list: ObservableSnapshot<SessionsPortList>
   /**
    * Create a session on the host.
-   * @param opts - target workspace.
+   * @param opts - optional target workspace and preset. A QZH session omits
+   * `workspaceId` so it groups as an ungrouped case instead of a directory.
    * @returns the new session id.
    */
-  create(opts: { workspaceId: WorkspaceId; agentPreset?: string }): Promise<SessionId>
+  create(opts: { workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId>
   /**
    * Select a session as current.
    * @param id - session id (must exist in the list store).
