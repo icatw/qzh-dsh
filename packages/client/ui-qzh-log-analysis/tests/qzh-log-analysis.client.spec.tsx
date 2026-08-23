@@ -178,6 +178,28 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.getByRole('button', { name: '复制报告' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '下载报告 (.md)' })).toBeTruthy()
   })
+
+  it('turns report file mentions into clickable preview openers', () => {
+    const onPreviewFile = vi.fn()
+    render(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed', createdAt: 1, updatedAt: 1,
+        report: '根因见 `server/logs/a.log:123` 与 `terminal/agent.log`。',
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onFeedback={vi.fn()}
+      evidencePaths={['server/logs/a.log', 'terminal/agent.log']}
+      onPreviewFile={onPreviewFile}
+    />)
+    // A `:line`-suffixed mention resolves to the file and opens the preview.
+    const withLine = screen.getByTitle('server/logs/a.log')
+    fireEvent.click(withLine)
+    expect(onPreviewFile).toHaveBeenCalledWith('server/logs/a.log')
+    // A bare mention resolves too; an unknown token stays inert code.
+    fireEvent.click(screen.getByTitle('terminal/agent.log'))
+    expect(onPreviewFile).toHaveBeenLastCalledWith('terminal/agent.log')
+  })
 })
 
 describe('QZH full-log archive upload', () => {

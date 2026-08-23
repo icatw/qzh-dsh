@@ -119,7 +119,7 @@ export function QzhEvidenceDock({
   if (state.entries.length === 0 && state.caseView.report === undefined) {
     return (
       <div className={css.dockExpanded}>
-        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
+        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })} onPreviewFile={previewFile} />
         <p className={css.muted}>摘要已提交，完整证据树随分析进度加载。</p>
       </div>
     )
@@ -146,7 +146,7 @@ export function QzhEvidenceDock({
   return state.panelOpen
     ? (
       <div className={css.dockExpanded}>
-        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} />
+        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onFeedback={submitFeedback} {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })} onPreviewFile={previewFile} />
         {tree !== undefined && (
           <QzhEvidenceFiles
             files={tree.files}

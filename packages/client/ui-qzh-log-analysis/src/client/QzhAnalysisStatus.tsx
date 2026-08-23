@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { QzhCaseView, QzhFeedbackKind } from '@deepseek-ai/dsh-api-remotes/client'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, type MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import { QzhFeedback } from './QzhFeedback.tsx'
 import css from './QzhLogAnalysisSection.module.css'
 
@@ -9,6 +9,10 @@ interface Props {
   readonly running: boolean
   readonly onStart: () => void
   readonly onFeedback: (kind: QzhFeedbackKind, comment?: string) => void
+  /** Known evidence-file paths (with `server/`/`terminal/` prefix) for report mentions. */
+  readonly evidencePaths?: readonly string[]
+  /** Opens the preview of one evidence file from a report mention. */
+  readonly onPreviewFile?: (path: string) => Promise<void>
 }
 
 /** Short epoch-ms timestamp for the case metadata line. */
@@ -24,8 +28,23 @@ function shortId(id: QzhCaseView['id']): string {
 }
 
 /** Show the third-stage analysis state without adding another page. */
-export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback }: Props) {
+export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback, evidencePaths, onPreviewFile }: Props) {
   const [copied, setCopied] = useState(false)
+  // Report mentions: inline-code tokens that name a known evidence file
+  // (optionally with a `:line` suffix) become clickable openers that preview
+  // the file; everything else stays inert code.
+  const fileMentions = useMemo<MarkdownFileMentions | undefined>(() => {
+    if (evidencePaths === undefined || onPreviewFile === undefined) return undefined
+    const known = new Set(evidencePaths)
+    return {
+      resolve(value) {
+        const match = /^(.*?):\d+$/.exec(value)
+        const path = match === null ? value : match[1] ?? value
+        if (!known.has(path)) return undefined
+        return { open: () => { void onPreviewFile(path) }, label: value, title: path }
+      },
+    }
+  }, [evidencePaths, onPreviewFile])
   if (caseView === undefined) return null
   const analyzing = running || caseView.state === 'analyzing'
   const completed = caseView.state === 'completed' || caseView.state === 'completed_with_limitations'
@@ -70,7 +89,7 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback }: Pr
             </button>
             <button type="button" className={css.copyButton} onClick={downloadReport}>下载报告 (.md)</button>
           </div>
-          <MarkdownText text={caseView.report} />
+          <MarkdownText text={caseView.report} fileMentions={fileMentions} />
         </div>
       )}
       {completed && <QzhFeedback feedback={caseView.feedback} onFeedback={onFeedback} />}
