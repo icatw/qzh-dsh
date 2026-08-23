@@ -259,7 +259,13 @@ export function virtualManifest(virtual: string, name: string): VirtualManifest 
   const prefix = `${name.replace('/', '+')}@`
   const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
   if (entry !== undefined) {
-    return JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as VirtualManifest
+    // A store directory may be a torn install (lockfile records the package,
+    // files never landed): treat it as absent instead of crashing so callers
+    // that tolerate an undefined manifest (platform payloads) skip it.
+    const candidate = resolve(virtual, entry, 'node_modules', name, 'package.json')
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, 'utf8')) as VirtualManifest
+    }
   }
   for (const dir of readdirSync(virtual)) {
     const candidate = resolve(virtual, dir, 'node_modules', name, 'package.json')
