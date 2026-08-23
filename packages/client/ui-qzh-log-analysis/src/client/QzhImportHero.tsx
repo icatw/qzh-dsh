@@ -35,14 +35,14 @@ function UploadZone({ category, title, hint, count, onFiles }: UploadZoneProps) 
       </div>
       <p className={css.uploadHint}>{hint}</p>
       <div className={css.uploadActions}>
-        <label className={css.primaryButton}>选择日志目录<input type="file" multiple accept=".log,.txt,.out" {...({ webkitdirectory: '' } as Record<string, string>)} onChange={event => { onFiles(category, event.currentTarget.files) }} /></label>
-        <label className={css.secondaryButton}>选择 ZIP<input type="file" multiple accept=".zip" onChange={event => { onFiles(category, event.currentTarget.files) }} /></label>
+        <label className={css.primaryButton}>选择日志目录<input type="file" multiple accept=".log,.txt,.out" {...({ webkitdirectory: '' } as Record<string, string>)} onChange={(event) => { onFiles(category, event.currentTarget.files) }} /></label>
+        <label className={css.secondaryButton}>选择 ZIP<input type="file" multiple accept=".zip" onChange={(event) => { onFiles(category, event.currentTarget.files) }} /></label>
       </div>
       <div
         className={`${css.dropZone} ${dragging ? css.dropZoneActive : ''}`}
-        onDragEnter={event => { event.preventDefault(); setDragging(true) }}
-        onDragOver={event => { event.preventDefault() }}
-        onDragLeave={event => { event.preventDefault(); setDragging(false) }}
+        onDragEnter={(event) => { event.preventDefault(); setDragging(true) }}
+        onDragOver={(event) => { event.preventDefault() }}
+        onDragLeave={(event) => { event.preventDefault(); setDragging(false) }}
         onDrop={drop}
       >
         {dragging ? '松开鼠标以导入' : '或将日志文件拖到这里'}

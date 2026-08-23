@@ -174,8 +174,9 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.getByText(/提交 \d{2}\/\d{2}/)).toBeTruthy()
     // The full id and the exact timestamp stay reachable via title attributes.
     expect(screen.getByText('#qzh-case').getAttribute('title')).toBe('qzh-case-abcdef12')
-    // The completed report exposes a copy action.
+    // The completed report exposes a copy action and a .md export.
     expect(screen.getByRole('button', { name: '复制报告' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '下载报告 (.md)' })).toBeTruthy()
   })
 })
 

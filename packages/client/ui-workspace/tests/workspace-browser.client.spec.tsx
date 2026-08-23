@@ -176,6 +176,32 @@ describe('WorkspaceBrowser', () => {
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
   })
 
+  it('splits the flat session list into today / yesterday / earlier sections', () => {
+    // Fixed noon timestamps: relative offsets would be time-of-day sensitive
+    // (an hour ago at midnight belongs to yesterday).
+    const noon = (daysAgo: number): number => {
+      const date = new Date()
+      date.setHours(12, 0, 0, 0)
+      date.setDate(date.getDate() - daysAgo)
+      return date.getTime()
+    }
+    const sessions = sessionState([
+      summary('recent', noon(0)),   // today noon
+      summary('yday', noon(1)),     // yesterday noon
+      summary('ancient', noon(3)),  // three days ago
+    ])
+    const b = mount({ useSessions: hook(sessions), useWorkspaces: hook(workspaceState([])) })
+    act(() => { b.store.actions.setGroupBy('flat') })
+    // ChatGPT-style time sections in the flat list.
+    expect(screen.getByText('今天')).toBeTruthy()
+    expect(screen.getByText('昨天')).toBeTruthy()
+    expect(screen.getByText('更早')).toBeTruthy()
+    expect(screen.getByText('recent')).toBeTruthy()
+    expect(screen.getByText('yday')).toBeTruthy()
+    expect(screen.getByText('ancient')).toBeTruthy()
+    b.view.unmount()
+  })
+
   it('persists flat-list drag order locally and applies Last updated within that account', async () => {
     const insertSessionBefore = vi.fn(async () => {})
     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])

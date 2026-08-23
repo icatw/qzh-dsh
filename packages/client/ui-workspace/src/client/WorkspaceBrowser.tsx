@@ -9,7 +9,7 @@
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
@@ -543,6 +543,20 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session is one draggable top-level row. */
+type TimeBucket = 'today' | 'yesterday' | 'earlier'
+
+/** Time bucket for one flat session row: today / yesterday / earlier. */
+function timeBucket(updatedAt: number, now: number): TimeBucket {
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const updated = new Date(updatedAt)
+  if (updated >= today) return 'today'
+  if (updated >= yesterday) return 'yesterday'
+  return 'earlier'
+}
+
 function FlatList({
   useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
@@ -620,40 +634,48 @@ function FlatList({
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
-        {rows.map((node) => {
+        {rows.map((node, index) => {
           const active = drag !== null
+          // ChatGPT-style time sections: the heading appears when the row
+          // starts a new bucket (first row or a bucket boundary), while
+          // drag/drop keeps working on the flat row sequence.
+          const bucket = timeBucket(node.updatedAt, now)
+          const previous = index > 0 ? rows[index - 1] : undefined
+          const showHeading = previous === undefined || timeBucket(previous.updatedAt, now) !== bucket
           return (
-            <SessionNodeItem
-              key={node.id}
-              node={node}
-              currentId={list.current}
-              now={now}
-              onOpen={open}
-              onRename={onSessionRename}
-              onFork={forkSession}
-              onArchive={onSessionArchive}
-              flat
-              drag={{
-                start: () => {
-                  dropCommitted.current = false
-                  setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, over: null })
-                },
-                active,
-                marker: active && drag.over?.id === node.id ? drag.over.half : null,
-                hover: (half) => {
-                  setDrag(current => current === null ? current : { ...current, over: { id: node.id, half } })
-                },
-                drop: (half) => {
-                  if (drag !== null) commitDrag(drag, { id: node.id, half })
-                },
-                end: () => {
-                  if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)
-                  else setDrag(null)
-                  dropCommitted.current = false
-                },
-              }}
-              t={t}
-            />
+            <Fragment key={node.id}>
+              {showHeading && <div className={css.sessionBucketLabel}>{t(`sessions.${bucket}`)}</div>}
+              <SessionNodeItem
+                node={node}
+                currentId={list.current}
+                now={now}
+                onOpen={open}
+                onRename={onSessionRename}
+                onFork={forkSession}
+                onArchive={onSessionArchive}
+                flat
+                drag={{
+                  start: () => {
+                    dropCommitted.current = false
+                    setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, over: null })
+                  },
+                  active,
+                  marker: active && drag.over?.id === node.id ? drag.over.half : null,
+                  hover: (half) => {
+                    setDrag(current => current === null ? current : { ...current, over: { id: node.id, half } })
+                  },
+                  drop: (half) => {
+                    if (drag !== null) commitDrag(drag, { id: node.id, half })
+                  },
+                  end: () => {
+                    if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)
+                    else setDrag(null)
+                    dropCommitted.current = false
+                  },
+                }}
+                t={t}
+              />
+            </Fragment>
           )
         })}
       </div>

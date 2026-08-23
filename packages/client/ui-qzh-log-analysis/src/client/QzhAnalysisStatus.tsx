@@ -36,6 +36,16 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback }: Pr
     setCopied(true)
     window.setTimeout(() => { setCopied(false) }, 1_500)
   }
+  const downloadReport = (): void => {
+    if (caseView.report === undefined) return
+    const blob = new Blob([caseView.report], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `qzh-report-${shortId(caseView.id)}.md`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
   return (
     <section className={css.analysisCard} aria-labelledby="qzh-analysis-status">
       <div className={css.sectionHeading}>
@@ -58,6 +68,7 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback }: Pr
             <button type="button" className={css.copyButton} onClick={() => { void copyReport() }}>
               {copied ? '已复制' : '复制报告'}
             </button>
+            <button type="button" className={css.copyButton} onClick={downloadReport}>下载报告 (.md)</button>
           </div>
           <MarkdownText text={caseView.report} />
         </div>

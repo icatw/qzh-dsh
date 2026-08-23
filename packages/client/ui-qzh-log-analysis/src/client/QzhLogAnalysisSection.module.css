@@ -85,7 +85,7 @@
    scroll body (DetailsPanel .body) is the single scrollport, so the report
    must not cap its height here. The MarkdownText renderer owns typography. */
 .report { margin: 0; border-top: 1px solid var(--dsw-alias-border-l1); padding: 14px 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.reportActions { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.reportActions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
 .copyButton { border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; padding: 3px 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; }
 .copyButton:hover { color: var(--dsw-alias-state-business-primary); border-color: var(--dsw-alias-state-business-primary); }
 .dockCollapsed, .dockExpanded { width: min(100%, 780px); margin: 0 auto; }
