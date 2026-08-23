@@ -98,7 +98,7 @@ function trimOptional(value: string | undefined, maxBytes: number): string | und
 }
 
 const SENSITIVE_TEXT = [
-  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\bBearer\s+[a-z0-9._~+/=-]+/gi,
   /\b(?:authorization|cookie|set-cookie|access[_-]?token|refresh[_-]?token|password|passwd|secret)\s*[:=]\s*[^\s,;]+/gi,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
 ]
@@ -250,6 +250,10 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.maxLogSearchBytes = config.maxLogSearchBytes ?? DEFAULT_MAX_LOG_SEARCH_BYTES
     this.storageBackendName = config.storageBackend ?? 'json'
     this.evidenceBackendName = config.evidenceBackend ?? this.storageBackendName
+    // The tool `execute` callbacks below are method shorthand, so their `this`
+    // is the tool object, not this service; the alias is required, not a
+    // scoping smell.
+    // oxlint-disable-next-line no-this-alias
     const service = this
     const tools = ctx.get('tools')
     const systemPrompt = ctx.get('systemPrompt')
@@ -325,7 +329,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           if (agent === undefined || resolveSessionPreset(agent.session) !== 'qzh') throw new Error('QZH code reading is available only in a qzh Agent session')
           const sessionId = agent.session.header.id
           const record = service.resolveToolCase(sessionId, typeof args.case_id === 'string' ? args.case_id : undefined)
-          const result = await service.readCode(sessionId, record.id, args.repository, args.path, args.start_line, args.end_line, exec.signal)
+          const result = await service.readCode(
+            sessionId, record.id, args.repository, args.path, args.start_line, args.end_line, exec.signal,
+          )
           return { ...result, case_id: record.id } as unknown as Record<string, JsonValue>
         },
       }))
@@ -695,7 +701,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns bounded matches and the exact mirror commit.
    */
   @Remote('searchCode')
-  async searchCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, query: string, signal?: AbortSignal): Promise<QzhCodeSearchResult> {
+  async searchCode(
+    sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, query: string, signal?: AbortSignal,
+  ): Promise<QzhCodeSearchResult> {
     const record = this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const root = await this.repositoryRoot(repo)
@@ -733,7 +741,10 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @returns bounded source text and the exact mirror commit.
    */
   @Remote('readCode')
-  async readCode(sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, path: string, startLine?: number, endLine?: number, signal?: AbortSignal): Promise<QzhCodeReadResult> {
+  async readCode(
+    sessionId: SessionId, id: QzhCaseId, repository: QzhRepository, path: string,
+    startLine?: number, endLine?: number, signal?: AbortSignal,
+  ): Promise<QzhCodeReadResult> {
     const record = this.requireCase(sessionId, id)
     const repo = ensureRepository(repository)
     const safePath = ensureRelativePath(path)
@@ -773,7 +784,10 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   private casesUnit(): Promise<KvUnit | undefined> {
     this.unitPromise ??= (async () => {
       const storage = this.ownerCtx.get('storage') as { backend: { get(name: string): { kv?: { open(descriptor: {
-        name: string; version: number; tables: readonly string[]; hasGlobal: boolean
+        name: string
+        version: number
+        tables: readonly string[]
+        hasGlobal: boolean
       }): Promise<KvUnit> } } } } | undefined
       if (storage === undefined) {
         this.warnPersistence('案例持久化不可用：storage 服务未挂载，本次按内存案例运行')
