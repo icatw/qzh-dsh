@@ -52,6 +52,7 @@ export function apply(ctx: ClientContext): void {
       remoteValue(ctx.remote.qzhLogAnalysis.readEvidenceRange(sessionId, id, path, undefined, undefined)),
     downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory): Promise<QzhArchiveDownload | undefined> => remoteValue(ctx.remote.qzhLogAnalysis.downloadEvidenceArchive(sessionId, id, category)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
+    generateReport: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.generateReport(sessionId, id)),
     setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setFeedback(sessionId, id, kind, comment)),
     renameSession: async (title: string): Promise<void> => {
       const summary = sessions.list.getSnapshot().byId[sessionId]
@@ -89,6 +90,9 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.details.qzh', store,
     inject: sessionId => ({
       startAnalysis: actions(sessionId).startAnalysis,
+      generateReport: actions(sessionId).generateReport,
+      setEvidence: actions(sessionId).setEvidence,
+      uploadEvidenceArchive: actions(sessionId).uploadEvidenceArchive,
       getCase: actions(sessionId).getCase,
       getActiveCase: actions(sessionId).getActiveCase,
       getEvidenceTree: actions(sessionId).getEvidenceTree,

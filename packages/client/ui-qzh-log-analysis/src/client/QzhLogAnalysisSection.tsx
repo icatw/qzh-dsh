@@ -21,6 +21,7 @@ interface QzhActions {
   readonly uploadEvidenceArchive: (id: QzhCaseView['id'], upload: QzhArchiveUpload) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly generateReport: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession?: (title: string) => Promise<void>
 }
@@ -49,7 +50,7 @@ function fileEntry(file: File, preview: string, category: QzhLogCategory): Impor
 /** Full blank-state QZH evidence flow. The normal conversation shell owns the frame. */
 export function QzhLogAnalysisSection({
   sessionId, useSessions, useStore, actions, createCase, setEvidence, uploadEvidenceArchive,
-  getCase, startAnalysis, setFeedback, renameSession,
+  getCase, startAnalysis, generateReport, setFeedback, renameSession,
 }: Props) {
   const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
   const state = useStore((value: QzhSessionState) => value)
@@ -191,7 +192,11 @@ export function QzhLogAnalysisSection({
 
   return (
     <section className={css.surface} aria-label="QZH 日志分析入口">
-      <QzhImportHero entries={state.entries} clusters={state.clusters} onFiles={(category, files) => { void onFiles(category, files) }} status={state.status} />
+      <QzhImportHero
+        entries={state.entries} clusters={state.clusters}
+        onFiles={(category, files) => { void onFiles(category, files) }}
+        status={state.status}
+      />
       {evidence !== undefined && state.caseView === undefined && (
         <div className={css.flowBody}>
           <QzhEvidencePreview evidence={evidence} />
@@ -212,7 +217,12 @@ export function QzhLogAnalysisSection({
       )}
       {state.caseView !== undefined && (
         <div className={css.flowBody}>
-          <QzhAnalysisStatus caseView={state.caseView} running={analysisRunning} onStart={() => { void retryAnalysis() }} onFeedback={submitFeedback} />
+          <QzhAnalysisStatus
+            caseView={state.caseView} running={analysisRunning}
+            onStart={() => { void retryAnalysis() }}
+            onGenerateReport={() => { if (state.caseView !== undefined) void generateReport(state.caseView.id).then(actions.setCaseView) }}
+            onFeedback={submitFeedback}
+          />
           {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
         </div>
       )}

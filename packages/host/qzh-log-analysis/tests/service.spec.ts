@@ -339,15 +339,19 @@ describe('QzhLogAnalysisService evidence archive', () => {
     })).rejects.toThrow('invalid')
   })
 
-  it('refuses a second upload and reports summary-only before any upload', async () => {
+  it('appends a second upload into the same tree and reports summary-only before any upload', async () => {
     const { service, sessionId, caseId } = await evidenceHarness()
     await expect(service.listEvidenceTree(sessionId, caseId)).rejects.toThrow('summary-only')
 
     const upload = zipOf({ 'a.log': 'one' })
     await service.uploadEvidenceArchive(sessionId, caseId, { filename: 'a.zip', category: 'server', contentBase64: upload })
-    await expect(service.uploadEvidenceArchive(sessionId, caseId, {
+    // Appending merges into the same field-side tree instead of refusing.
+    await service.uploadEvidenceArchive(sessionId, caseId, {
       filename: 'b.zip', category: 'server', contentBase64: zipOf({ 'b.log': 'two' }),
-    })).rejects.toThrow('already has server evidence')
+    })
+    const tree = await service.getEvidenceTree(sessionId, caseId)
+    expect(tree.files.map(file => file.path).sort()).toEqual(['server/a.log', 'server/b.log'])
+    expect(tree.archives?.[0]?.filename).toBe('b.zip')
     await expect(service.readEvidenceRange(sessionId, caseId, 'missing.log', undefined, undefined))
       .rejects.toThrow('not found')
   })
@@ -369,21 +373,21 @@ describe('QzhLogAnalysisService evidence archive', () => {
   })
 })
 
-  it('serves the evidence tree via getEvidenceTree, degrading to the summary before upload', async () => {
-    const { service, sessionId, caseId } = await evidenceHarness()
-    await service.setEvidence(sessionId, caseId, {
-      consent: { approved: true, destination: 'internal-qzh-analysis' },
-      files: [{ path: 'server/logs/a.log', component: 'web-agent', stream: 'log', category: 'server', size: 5, sample: 'INFO x' }],
-      clusters: [],
-    })
-    const before = await service.getEvidenceTree(sessionId, caseId)
-    expect(before.totalFiles).toBe(1)
-    expect(before.files[0]?.path).toBe('server/logs/a.log')
-    expect(before.files[0]?.sample).toBe('INFO x')
-
-    await service.uploadEvidenceArchive(sessionId, caseId, {
-      filename: 'b.zip', category: 'server', contentBase64: zipOf({ 'server/logs/a.log': 'INFO x\nERROR boom' }),
-    })
-    const after = await service.getEvidenceTree(sessionId, caseId)
-    expect(after.files[0]?.sample).toContain('INFO x')
+it('serves the evidence tree via getEvidenceTree, degrading to the summary before upload', async () => {
+  const { service, sessionId, caseId } = await evidenceHarness()
+  await service.setEvidence(sessionId, caseId, {
+    consent: { approved: true, destination: 'internal-qzh-analysis' },
+    files: [{ path: 'server/logs/a.log', component: 'web-agent', stream: 'log', category: 'server', size: 5, sample: 'INFO x' }],
+    clusters: [],
   })
+  const before = await service.getEvidenceTree(sessionId, caseId)
+  expect(before.totalFiles).toBe(1)
+  expect(before.files[0]?.path).toBe('server/logs/a.log')
+  expect(before.files[0]?.sample).toBe('INFO x')
+
+  await service.uploadEvidenceArchive(sessionId, caseId, {
+    filename: 'b.zip', category: 'server', contentBase64: zipOf({ 'server/logs/a.log': 'INFO x\nERROR boom' }),
+  })
+  const after = await service.getEvidenceTree(sessionId, caseId)
+  expect(after.files[0]?.sample).toContain('INFO x')
+})

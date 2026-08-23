@@ -124,6 +124,7 @@ describe('QZH blank-session analysis surface', () => {
       }}
       running={false}
       onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
       onFeedback={vi.fn()}
     />)
     // A heading, inline emphasis, a list, and a fenced code block render as
@@ -150,6 +151,7 @@ describe('QZH blank-session analysis surface', () => {
       }}
       running={false}
       onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
       onFeedback={vi.fn()}
     />)
     expect(screen.getByText('受限完成')).toBeTruthy()
@@ -167,6 +169,7 @@ describe('QZH blank-session analysis surface', () => {
       }}
       running={false}
       onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
       onFeedback={vi.fn()}
     />)
     // Metadata line: configured version, formatted submit time, compact id.
@@ -180,6 +183,34 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.getByRole('button', { name: '下载报告 (.md)' })).toBeTruthy()
   })
 
+  it('offers generate-report while analyzing and continue after completion', () => {
+    const { rerender } = render(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'analyzing', createdAt: 1, updatedAt: 1,
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    // Analyzing: the primary action asks for the final report.
+    expect(screen.getByRole('button', { name: '生成报告' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '继续分析' })).toBeNull()
+    rerender(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed', createdAt: 1, updatedAt: 1,
+        report: '# 结论\n完成。',
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    // Completed: the user may continue the investigation (re-analyze).
+    expect(screen.getByRole('button', { name: '继续分析' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '生成报告' })).toBeNull()
+  })
+
   it('turns report file mentions into clickable preview openers', () => {
     const onPreviewFile = vi.fn()
     render(<QzhAnalysisStatus
@@ -189,6 +220,7 @@ describe('QZH blank-session analysis surface', () => {
       }}
       running={false}
       onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
       onFeedback={vi.fn()}
       evidencePaths={['server/logs/a.log', 'terminal/agent.log']}
       onPreviewFile={onPreviewFile}

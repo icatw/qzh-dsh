@@ -453,11 +453,11 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   @Remote('uploadEvidenceArchive')
   async uploadEvidenceArchive(sessionId: SessionId, id: QzhCaseId, upload: QzhArchiveUpload): Promise<QzhCaseView> {
     await this.casesUnit()
-    const record = this.requireCase(sessionId, id)
+    this.requireCase(sessionId, id)
     const category = ensureCategory(upload.category)
-    if (record.archives?.[category] !== undefined) {
-      throw new Error(`QZH case ${String(id)} already has ${category} evidence`)
-    }
+    // Appending is allowed: a later upload merges into the same field-side
+    // tree (same-path files overwrite, new paths are added), so the user can
+    // supplement missing logs mid-investigation.
     const content = decodeArchiveContent(upload.contentBase64)
     if (Buffer.byteLength(content) > this.maxEvidenceArchiveBytes) {
       throw new Error(`QZH evidence archive exceeds ${String(this.maxEvidenceArchiveBytes)} bytes`)
@@ -493,9 +493,12 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     await blob.put(this.archiveKey(id, category), content)
     const timestamp = now()
     const current = this.requireCase(sessionId, id)
+    // Appending keeps the current investigation state: a completed case stays
+    // completed until the user asks to re-analyze; an analyzing case stays
+    // analyzing so the extra files join the on-demand log surface.
     const next: CaseRecord = {
       ...current,
-      state: 'evidence-ready',
+      state: current.state === 'draft' ? 'evidence-ready' : current.state,
       updatedAt: timestamp,
       archives: { ...current.archives, [category]: upload.filename },
     }
@@ -631,7 +634,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   async startAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<QzhAnalysisStartResult> {
     const record = this.requireCase(sessionId, id)
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
-    if ((record.state === 'analyzing' || record.state === 'completed' || record.state === 'completed_with_limitations') && record.analysisSessionId !== undefined) {
+    // Re-entering analysis (from a completed report, or a fresh start) is
+    // always allowed: the case is live until the user asks for a report.
+    if (record.state === 'analyzing' && record.analysisSessionId !== undefined) {
       return { case: { ...record }, sessionId: record.analysisSessionId }
     }
     const existing = this.analysisRuns.get(id)
@@ -642,9 +647,27 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.cases.set(id, next)
     this.activeCases.set(sessionId, id)
     await this.persistCase(id)
-    const run = this.runAnalysis(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
+    const run = this.runAnalysisTurn(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
     this.analysisRuns.set(id, run)
     return { case: { ...next }, sessionId }
+  }
+
+  /** Produce the final structured report from the current investigation.
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @returns the case view (still `analyzing` until the report lands; the
+   * browser polls for the terminal state).
+   */
+  @Remote('generateReport')
+  async generateReport(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
+    const record = this.requireCase(sessionId, id)
+    if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
+    if (record.state !== 'analyzing') throw new Error('QZH 案例未在分析中，请先启动分析')
+    const existing = this.analysisRuns.get(id)
+    if (existing !== undefined) throw new Error('QZH 案例分析正在进行，请稍候')
+    const run = this.generateReportRun(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
+    this.analysisRuns.set(id, run)
+    return { ...this.requireCase(sessionId, id) }
   }
 
   /** Read one case summary without exposing the internal mutable record.
@@ -1063,13 +1086,39 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     }
   }
 
-  private async runAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<void> {
+  /** One analysis turn: the Agent reads evidence and works the case; the case stays `analyzing`. */
+  private async runAnalysisTurn(sessionId: SessionId, id: QzhCaseId): Promise<void> {
     try {
       const record = this.requireCase(sessionId, id)
       const agent = this.ownerCtx.agents.get(sessionId)
       if (agent === undefined || agent.session.header.id !== sessionId) throw new Error(`QZH session ${String(sessionId)} is not live`)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: this.analysisPrompt(record) }],
+        source: { kind: 'plugin', plugin: 'qzh-log-analysis', form: 'instructions' },
+      }))
+      await agent.whenIdle()
+    } catch (error: unknown) {
+      const latest = this.requireCase(sessionId, id)
+      const failed: CaseRecord = {
+        ...latest,
+        state: 'failed',
+        updatedAt: now(),
+        analysisError: `分析轮失败：${error instanceof Error ? error.message : String(error)}`,
+      }
+      delete failed.report
+      this.cases.set(id, failed)
+      await this.persistCase(id)
+    }
+  }
+
+  /** Final report generation: the Agent summarizes the investigation into a structured report. */
+  private async generateReportRun(sessionId: SessionId, id: QzhCaseId): Promise<void> {
+    try {
+      const record = this.requireCase(sessionId, id)
+      const agent = this.ownerCtx.agents.get(sessionId)
+      if (agent === undefined || agent.session.header.id !== sessionId) throw new Error(`QZH session ${String(sessionId)} is not live`)
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: this.reportPrompt(record) }],
         source: { kind: 'plugin', plugin: 'qzh-log-analysis', form: 'instructions' },
       }))
       await agent.whenIdle()
@@ -1110,15 +1159,28 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     const evidence = record.evidence
     if (evidence === undefined) throw new Error('QZH case has no evidence')
     return [
-      '请分析下面这个 QZH 故障案例。日志摘要已经过 Host 二次脱敏；不得要求完整日志，也不得执行写操作。',
+      '请开始分析下面这个 QZH 故障案例。日志摘要已经过 Host 二次脱敏；不得要求完整日志，也不得执行写操作。',
       `案例 ID：${record.id}`,
       `QZH 版本：${record.productVersion ?? '未知'}`,
       `故障描述：${record.failureDescription ?? '未提供'}`,
       `日志文件：${JSON.stringify(evidence.files)}`,
       `异常聚类：${JSON.stringify(evidence.clusters)}`,
       `日志短样例：${evidence.excerpt ?? '未提供'}`,
-      '先调用 qzh_list_evidence 查看完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致，报告中的日志引用必须使用证据包内的真实相对路径。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
+      '先调用 qzh_list_evidence 查看完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
+      '请先梳理证据、说明排查思路和初步发现；本轮不需要输出最终报告。用户会继续追问细节或补充证据，最后再由用户请求生成正式报告。',
+    ].join('\n')
+  }
+
+  private reportPrompt(record: CaseRecord): string {
+    const evidence = record.evidence
+    if (evidence === undefined) throw new Error('QZH case has no evidence')
+    return [
+      '请基于当前会话中已经完成的排查，输出最终中文报告。',
+      `案例 ID：${record.id}`,
+      `QZH 版本：${record.productVersion ?? '未知'}`,
+      `故障描述：${record.failureDescription ?? '未提供'}`,
       '请按以下结构输出中文报告：结论；事实证据；代码定位（仓库/commit/路径/行号）；根因推断；可信度；信息缺口；现场验证步骤；修复建议（只描述，不修改代码）。',
+      '报告中的日志引用必须使用证据包内的真实相对路径（path:line），代码引用必须包含仓库、commit、文件路径和行号。',
     ].join('\n')
   }
 

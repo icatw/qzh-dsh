@@ -88,6 +88,9 @@ button.evidenceRow .evidencePath { color: var(--dsw-alias-state-business-primary
 .flowBody > .primaryButton { justify-self: start; }
 .analysisCard .sectionHeading { border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .analysisCard > .primaryButton { justify-self: start; margin: 14px 18px 18px; }
+/* Status action row: generate report (analyzing) / start (idle) / continue (completed). */
+.statusActions { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 18px 18px; }
+.statusActions .primaryButton, .statusActions .secondaryButton { min-height: 36px; }
 /* Case metadata line under the analysis heading: version / submit time /
    short case id, secondary labels with the full values in tooltips. */
 .caseMeta { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 18px; border-bottom: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-tertiary); font-size: 11px; }
@@ -113,5 +116,13 @@ button.evidenceRow .evidencePath { color: var(--dsw-alias-state-business-primary
 .dockCollapsed button { flex: none; border: 0; background: transparent; color: var(--dsw-alias-state-business-primary); font-size: 11px; cursor: pointer; }
 /* The details column scrolls as a whole; this box only stacks the cards. */
 .dockExpanded { display: grid; gap: 8px; min-width: 0; }
+/* Supplement-log flow inside the details dock. */
+.supplement { display: grid; gap: 8px; padding: 2px 0; }
+.supplement > .copyButton { justify-self: start; }
+.supplementPanel { display: grid; gap: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 12px 14px; background: var(--dsw-alias-bg-layer-1); }
+.supplementHint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
+.supplementActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.supplementActions label { min-height: 34px; }
+.supplementActions input { display: none; }
 @media (max-width: 760px) { .surface { padding: 0 12px 20px; } .heroInner { padding: 32px 4px 24px; } .formGrid { grid-template-columns: 1fr; } .formWide { grid-column: auto; } .uploadGrid { grid-template-columns: 1fr; } .reviewHeader, .sectionHeading { gap: 10px; } .evidenceRow, .clusterRow { flex-direction: column; } .evidenceRow > span:last-child { text-align: left; } .evidenceRow > span:first-child { width: 100%; white-space: normal; overflow-wrap: anywhere; } .dockCollapsed { align-items: flex-start; flex-direction: column; padding: 4px 0; } .dockCollapsed button { padding: 0; } .importedRow { flex-direction: column; gap: 2px; } .importedSize { white-space: normal; } }
 @media (max-width: 420px) { .uploadActions { display: grid; grid-template-columns: 1fr; } .primaryButton, .secondaryButton { width: 100%; } .heroCopy h1 { font-size: 30px; } .reviewHeader, .sectionHeading { flex-direction: column; } .reviewBadge, .statePill { align-self: flex-start; } .reportActions { flex-wrap: wrap; justify-content: flex-start; } .previewHeader { flex-wrap: wrap; } .previewMeta { width: 100%; } .uploadPanel { padding: 12px; } .evidenceToggle { padding: 12px 14px; } .evidenceRow, .clusterRow { padding: 10px 14px; } .dockExpanded { gap: 6px; } }

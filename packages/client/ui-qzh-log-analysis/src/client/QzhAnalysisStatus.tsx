@@ -7,7 +7,10 @@ import css from './QzhLogAnalysisSection.module.css'
 interface Props {
   readonly caseView?: QzhCaseView
   readonly running: boolean
+  /** Start or resume the investigation (keeps the case `analyzing`). */
   readonly onStart: () => void
+  /** Ask the Agent to produce the final structured report. */
+  readonly onGenerateReport: () => void
   readonly onFeedback: (kind: QzhFeedbackKind, comment?: string) => void
   /** Known evidence-file paths (with `server/`/`terminal/` prefix) for report mentions. */
   readonly evidencePaths?: readonly string[]
@@ -28,7 +31,7 @@ function shortId(id: QzhCaseView['id']): string {
 }
 
 /** Show the third-stage analysis state without adding another page. */
-export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback, evidencePaths, onPreviewFile }: Props) {
+export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport, onFeedback, evidencePaths, onPreviewFile }: Props) {
   const [copied, setCopied] = useState(false)
   // Report mentions: inline-code tokens that name a known evidence file
   // (optionally with a `:line` suffix) become clickable openers that preview
@@ -69,8 +72,8 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback, evid
     <section className={css.analysisCard} aria-labelledby="qzh-analysis-status">
       <div className={css.sectionHeading}>
         <div>
-          <h2 id="qzh-analysis-status">{completed ? '报告已回到当前会话' : analyzing ? '正在分析当前会话' : '摘要已提交'}</h2>
-          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告和后续追问会继续留在右侧消息流。' : analyzing ? 'Agent 正在按时间线读取日志证据和 QZH 只读源码。' : '确认摘要后启动只读分析。'}</p>
+          <h2 id="qzh-analysis-status">{completed ? '报告已生成' : analyzing ? '正在分析当前会话' : '摘要已提交'}</h2>
+          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告已回到当前会话；可继续追问或补充证据后重新生成。' : analyzing ? 'Agent 正在读取日志证据并定位；可继续追问、补充日志，或直接生成报告。' : '确认摘要后启动只读分析。'}</p>
         </div>
         <span className={css.statePill} data-state={caseView.state}>{completed ? (limited ? '受限完成' : '已完成') : analyzing ? '分析中' : caseView.state}</span>
       </div>
@@ -79,7 +82,11 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onFeedback, evid
         {caseView.createdAt !== undefined && <span title={`提交于 ${new Date(caseView.createdAt).toLocaleString('zh-CN')}`}>提交 {formatTimestamp(caseView.createdAt)}</span>}
         <span title={String(caseView.id)}>{shortId(caseView.id)}</span>
       </div>
-      {!completed && !analyzing && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
+      <div className={css.statusActions}>
+        {analyzing && <button className={css.primaryButton} type="button" onClick={onGenerateReport}>生成报告</button>}
+        {!analyzing && !completed && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
+        {completed && <button className={css.secondaryButton} type="button" onClick={onStart}>继续分析</button>}
+      </div>
       {caseView.analysisError !== undefined && <p className={css.errorText}>{caseView.analysisError}</p>}
       {caseView.report !== undefined && (
         <div className={css.report}>
