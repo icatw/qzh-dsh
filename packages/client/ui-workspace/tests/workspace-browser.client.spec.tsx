@@ -104,7 +104,10 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessionState([qzh, standard])),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['qzh-case', 'standard-chat'])])),
     })
-    fireEvent.click(screen.getByText('alpha'))
+    // QZH mode is a directory-free SaaS surface: sessions render as a flat
+    // list filtered to the qzh preset — no workspace groups, no group header.
+    expect(screen.queryByText('alpha')).toBeNull()
+    expect(screen.getByText('会话')).toBeTruthy()
     expect(screen.getByText('qzh-case')).toBeTruthy()
     expect(screen.queryByText('standard-chat')).toBeNull()
     b.view.unmount()

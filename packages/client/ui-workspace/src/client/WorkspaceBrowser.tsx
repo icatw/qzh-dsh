@@ -768,7 +768,7 @@ export function WorkspaceBrowser({
   const workbenchMode = useWorkbench(state => state.mode)
   const fullSessionList = useSessions(state => state)
   const visibleSessionList = useMemo(() => {
-    const ids = fullSessionList.ids.filter(id => {
+    const ids = fullSessionList.ids.filter((id) => {
       const summary = fullSessionList.byId[id]
       return summary !== undefined && (workbenchMode === 'qzh' ? summary.agentPreset === 'qzh' : summary.agentPreset !== 'qzh')
     })
@@ -791,6 +791,12 @@ export function WorkspaceBrowser({
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   const sessionUpdatedAtByAccount = useStore(s => s.sessionUpdatedAtByAccount)
+  // The QZH log-analysis mode is a directory-free SaaS surface: its sessions
+  // are cases, never grouped under a workspace, and the workspace browsing
+  // affordances (group menu, add-workspace picker) stay hidden there. The
+  // persisted groupBy preference still belongs to the standard mode.
+  const isQzhMode = workbenchMode === 'qzh'
+  const effectiveGroupBy = isQzhMode ? 'flat' : groupBy
   useEffect(() => {
     if (workspacePhase !== 'ready') return
     actions.retainAccountKeys([
@@ -996,7 +1002,7 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {effectiveGroupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
         {wide && (
@@ -1057,7 +1063,7 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && (
+          {wide && !isQzhMode && (
             <ViewOptionsMenu
               groupBy={groupBy}
               orderBy={orderBy}
@@ -1068,8 +1074,9 @@ export function WorkspaceBrowser({
           )}
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
-              button rather than leaving a dead one in the header. */}
-          {directoryFlowAvailable && (
+              button rather than leaving a dead one in the header. The QZH
+              mode is directory-free, so it never offers a picker. */}
+          {directoryFlowAvailable && !isQzhMode && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
                 ref={wsPlusRef}
@@ -1138,7 +1145,7 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : groupBy === 'flat'
+          : effectiveGroupBy === 'flat'
             ? (
               <FlatList
                 useSessions={visibleUseSessions} open={open} forkSession={forkSession}
