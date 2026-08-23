@@ -8,6 +8,7 @@ import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-
 import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import { inject as qzhInject } from '../src/client/index.ts'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
+import { QzhImportHero } from '../src/client/QzhImportHero.tsx'
 import { QzhAnalysisStatus } from '../src/client/QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from '../src/client/QzhEvidenceFiles.tsx'
 import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
@@ -291,5 +292,28 @@ describe('QzhEvidenceFiles', () => {
     fireEvent.click(screen.getByRole('button', { name: /logs\/app\.log/ }))
     // file.path is forwarded verbatim (already carries the category prefix).
     expect(onPreviewFile).toHaveBeenCalledWith('logs/app.log')
+  })
+})
+
+describe('QzhImportHero', () => {
+  it('lists selected files per side with sizes and a large-file hint', () => {
+    render(<QzhImportHero
+      entries={[
+        { path: 'server/logs/a.log', size: 2048, source: 'file', sample: '', category: 'server', component: 'web-agent', stream: 'log' },
+        { path: 'server/logs/big.out', size: 3 * 1024 * 1024, source: 'file', sample: '', category: 'server', component: 'worker', stream: 'log' },
+        { path: 'terminal/agent.log', size: 128, source: 'file', sample: '', category: 'terminal', component: 'agent', stream: 'log' },
+      ]}
+      clusters={[]}
+      onFiles={vi.fn()}
+      status=""
+    />)
+    // Per-side file counts and the file rows with human-readable sizes.
+    expect(screen.getByText('服务端 2 个文件')).toBeTruthy()
+    expect(screen.getByText('终端 1 个文件')).toBeTruthy()
+    expect(screen.getByText('server/logs/a.log')).toBeTruthy()
+    expect(screen.getByText('server/logs/big.out')).toBeTruthy()
+    expect(screen.getByText(/2\.0 KB/)).toBeTruthy()
+    // A file beyond the local preview bound flags the truncation.
+    expect(screen.getByText(/大文件，本地预览截断/)).toBeTruthy()
   })
 })

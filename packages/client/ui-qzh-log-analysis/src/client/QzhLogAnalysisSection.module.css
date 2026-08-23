@@ -22,6 +22,14 @@
 .dropZoneActive { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .heroMeta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .status { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+/* Selected-file listing per field side, shown right after import. */
+.importedList { display: grid; gap: 10px; margin-top: 4px; }
+.importedGroup { border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }
+.importedGroupHead { display: flex; justify-content: space-between; gap: 12px; padding: 9px 14px; color: var(--dsw-alias-label-secondary); font-size: 11px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.importedRow { display: flex; justify-content: space-between; gap: 12px; padding: 6px 14px; font-size: 11px; line-height: 1.5; }
+.importedPath { flex: 1; min-width: 0; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.importedSize { flex: none; color: var(--dsw-alias-label-tertiary); }
+.importedMore { padding: 6px 14px 9px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .flowBody { display: grid; gap: 14px; box-sizing: border-box; width: min(100%, 920px); margin: 0 auto; }
 .reviewCard, .consentCard, .analysisCard { display: grid; gap: 0; min-width: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }
 .reviewHeader, .sectionHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

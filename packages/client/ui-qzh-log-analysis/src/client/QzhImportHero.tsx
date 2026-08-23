@@ -1,8 +1,18 @@
 import { useState, type DragEvent } from 'react'
-import type { ImportedLogEntry } from '../log-import.ts'
+import { MAX_PREVIEW_BYTES, type ImportedLogEntry } from '../log-import.ts'
 import type { LogErrorCluster } from '../log-parser.ts'
 import type { QzhLogCategory } from '../log-layout.ts'
 import css from './QzhLogAnalysisSection.module.css'
+
+/** Files listed inline per field side before the summary confirmation. */
+const MAX_LISTED_FILES = 5
+
+/** Human-readable byte size. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 interface Props {
   readonly entries: readonly ImportedLogEntry[]
@@ -56,6 +66,16 @@ export function QzhImportHero({ entries, clusters, onFiles, status }: Props) {
   const imported = entries.length > 0
   const serverCount = entries.filter(entry => entry.category === 'server').length
   const terminalCount = entries.filter(entry => entry.category === 'terminal').length
+  const importedGroups = (['server', 'terminal'] as const).map((category) => {
+    const files = entries.filter(entry => entry.category === category)
+    return {
+      category,
+      files,
+      totalBytes: files.reduce((sum, entry) => sum + entry.size, 0),
+      visible: files.slice(0, MAX_LISTED_FILES),
+      rest: files.length - MAX_LISTED_FILES,
+    }
+  }).filter(group => group.files.length > 0)
   return (
     <section className={css.hero} aria-labelledby="qzh-import-heading">
       <div className={css.heroInner}>
@@ -80,6 +100,28 @@ export function QzhImportHero({ entries, clusters, onFiles, status }: Props) {
             onFiles={onFiles}
           />
         </div>
+        {importedGroups.length > 0 && (
+          <div className={css.importedList} aria-label="已选文件">
+            {importedGroups.map(group => (
+              <div key={group.category} className={css.importedGroup}>
+                <div className={css.importedGroupHead}>
+                  <span>{group.category === 'server' ? '服务端' : '终端'} {group.files.length} 个文件</span>
+                  <span>{formatBytes(group.totalBytes)}</span>
+                </div>
+                {group.visible.map(entry => (
+                  <div key={entry.path} className={css.importedRow}>
+                    <span className={css.importedPath} title={entry.path}>{entry.path}</span>
+                    <span className={css.importedSize}>
+                      {formatBytes(entry.size)}
+                      {entry.size > MAX_PREVIEW_BYTES ? ' · 大文件，本地预览截断' : ''}
+                    </span>
+                  </div>
+                ))}
+                {group.rest > 0 && <div className={css.importedMore}>等 {group.rest} 个文件…</div>}
+              </div>
+            ))}
+          </div>
+        )}
         <div className={css.heroMeta} aria-live="polite">
           <span>{imported ? `服务端 ${serverCount} 个 · 终端 ${terminalCount} 个` : '第 1 步 · 导入日志'}</span>
           <span>{imported ? `${clusters.length} 类异常` : '支持 .log、.out、带日志特征的 .txt 和 ZIP'}</span>
