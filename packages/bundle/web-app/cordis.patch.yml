@@ -60,6 +60,19 @@
         # scratch directory. Locally it lives under the harness home.
         root: !!js dshHomePath('storages')
 
+    # S3-compatible blob backend for public deployments. Disabled until the
+    # deployment supplies a bucket; QZH evidence points at it by setting
+    # `evidenceBackend: s3`. Credentials resolve from the standard AWS chain.
+    - id: storage-s3
+      name: '@deepseek-ai/dsh-storage-s3'
+      disabled: !!js "(process.env.S3_BUCKET ?? '') === ''"
+      config:
+        bucket: !!js process.env.S3_BUCKET
+        endpoint: !!js process.env.S3_ENDPOINT
+        region: !!js process.env.S3_REGION
+        prefix: !!js process.env.S3_PREFIX
+        forcePathStyle: !!js process.env.S3_FORCE_PATH_STYLE === '1'
+
     - id: storage-domain
       name: '@deepseek-ai/dsh-storage-domain'
       config:

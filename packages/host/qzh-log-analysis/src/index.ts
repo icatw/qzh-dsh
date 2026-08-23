@@ -48,6 +48,8 @@ export interface Config {
   maxLogSearchBytes?: number
   /** Storage backend name used for durable cases and evidence (default `json`). */
   storageBackend?: string
+  /** Backend name for evidence blobs; defaults to `storageBackend` (KV and blob share one backend). */
+  evidenceBackend?: string
 }
 
 type CaseRecord = { -readonly [K in keyof QzhCaseView]: QzhCaseView[K] }
@@ -118,7 +120,7 @@ function ensureCategory(value: QzhLogCategory): QzhLogCategory {
 }
 
 function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
-  const files = evidence.files.slice(0, 500).map(file => {
+  const files = evidence.files.slice(0, 500).map((file) => {
     const sample = file.sample === undefined ? undefined : redactSensitiveText(file.sample).slice(0, 512)
     return {
       path: evidencePath(file.path),
@@ -210,6 +212,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     maxReadBytes: z.natural().default(DEFAULT_MAX_READ_BYTES),
     maxSearchResults: z.natural().default(DEFAULT_MAX_SEARCH_RESULTS),
     storageBackend: z.string().default('json'),
+    evidenceBackend: z.string(),
   })
 
   private readonly cases = new Map<QzhCaseId, CaseRecord>()
@@ -223,6 +226,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   private readonly maxLogSearchResults: number
   private readonly maxLogSearchBytes: number
   private readonly storageBackendName: string
+  private readonly evidenceBackendName: string
   private readonly ownerCtx: Context
   private readonly analysisRuns = new Map<QzhCaseId, Promise<void>>()
   /** Latest submitted case used as implicit context by model-facing tools. */
@@ -245,6 +249,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     this.maxLogSearchResults = config.maxLogSearchResults ?? DEFAULT_MAX_LOG_SEARCH_RESULTS
     this.maxLogSearchBytes = config.maxLogSearchBytes ?? DEFAULT_MAX_LOG_SEARCH_BYTES
     this.storageBackendName = config.storageBackend ?? 'json'
+    this.evidenceBackendName = config.evidenceBackend ?? this.storageBackendName
     const service = this
     const tools = ctx.get('tools')
     const systemPrompt = ctx.get('systemPrompt')
@@ -771,7 +776,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         name: string; version: number; tables: readonly string[]; hasGlobal: boolean
       }): Promise<KvUnit> } } } } | undefined
       if (storage === undefined) {
-        this.warnPersistence(`案例持久化不可用：storage 服务未挂载，本次按内存案例运行`)
+        this.warnPersistence('案例持久化不可用：storage 服务未挂载，本次按内存案例运行')
         return undefined
       }
       let unit: KvUnit
@@ -832,9 +837,9 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   private blobFacet(): BlobFacet {
     const storage = this.ownerCtx.get('storage') as { backend: { get(name: string): { blob?: BlobFacet } } } | undefined
     if (storage === undefined) throw new Error('QZH 证据落盘不可用：storage 服务未挂载')
-    const backend = storage.backend.get(this.storageBackendName)
+    const backend = storage.backend.get(this.evidenceBackendName)
     if (backend.blob === undefined) {
-      throw new Error(`QZH 证据落盘不可用：后端 ${this.storageBackendName} 无 blob 能力`)
+      throw new Error(`QZH 证据落盘不可用：后端 ${this.evidenceBackendName} 无 blob 能力`)
     }
     return backend.blob
   }

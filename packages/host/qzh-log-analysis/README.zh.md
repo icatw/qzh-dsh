@@ -14,7 +14,8 @@ DSH Web 的 Host 侧 QZH 案例 Remote API、只读 Git mirror 和当前会话�
 
 ## 已知限制与暂缓事项
 
-- **案例持久化**：案例通过 `ctx.storage` 的 kv 后端（默认 `json`，`storageBackend` 可配置）持久化到 `qzh_cases` 单元，启动后首次访问时自动恢复；storage 服务或后端不可用时降级为纯内存案例并警告一次。报告反馈同样随案例持久化。`storageBackend` 命名同时持有 `qzh_cases` KV 单元与各案例证据 blob 的单一后端，因此把它指向持久卷或对象存储后端即可一次迁移全部 QZH 持久数据。
+- **案例持久化**：案例通过 `ctx.storage` 的 kv 后端（默认 `json`，`storageBackend` 可配置）持久化到 `qzh_cases` 单元，启动后首次访问时自动恢复；storage 服务或后端不可用时降级为纯内存案例并警告一次。报告反馈同样随案例持久化。`evidenceBackend`（默认同 `storageBackend`）命名持有各案例证据 blob 的后端，因此公网部署可让 KV 留在本地（`json`）、证据落到 `s3`。
+- **完整日志归档**：`uploadEvidenceArchive` 把原始 zip 与解压树以二进制对象存到 `evidenceBackend` 后端的 `blob` 分面（默认 `json`，可用 `s3` 指向 S3 兼容对象存储），key 为 `<caseId>/archive-<category>.zip` 与 `<caseId>/files/<category>/<relpath>`。解压会校验每个条目路径、拒绝非文件/符号链接、限制归档/文件/文件数大小，并以归档 blob 最后写入作为持久化标记；同一端别的二次上传被拒绝。`qzh_list_logs` / `qzh_search_logs` / `qzh_read_log_range` 只通过服务读取（校验归属与 key 围栏）并对每段摘录脱敏。未上传归档时，摘要仍是持久化回退。
 - **必须配置 mirror**：只有设置 `QZH_MIRROR_ROOT` 时 Web profile 才加载本包；它指向服务端 Git 对象库（checkout 或裸仓库，其 tag/commit 能被 `git show`/`git grep` 命中，不使用工作树）。公网部署时这是持久 clone 并用 `git fetch --tags` 刷新，绝非单机 checkout。
 - **只读源码面**：搜索和有限读取都会校验路径包含关系，不提供源码写入或任意命令执行。
 - **证据会二次脱敏**：Host 会规范化压缩包内相对路径、限制元数据大小，并在保存摘要前遮盖常见 Authorization、Cookie、Token、密码、Secret 和私钥模式；每个文件的首行布局样例同样会脱敏并限制在 512 字符内。每个文件和聚类都带 `category`（`server`/`terminal`），非 `terminal` 一律归为 `server`。
