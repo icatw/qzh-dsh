@@ -156,6 +156,27 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.getByText('报告缺少部分必要结构，已按受限完成保留；结论仍可参考。')).toBeTruthy()
     expect(screen.getByText('这次分析有用吗？')).toBeTruthy()
   })
+
+  it('renders case metadata (version / submit time / short id) and a report copy action', () => {
+    render(<QzhAnalysisStatus
+      caseView={{
+        id: 'qzh-case-abcdef12' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed',
+        createdAt: 1_720_000_000_000, updatedAt: 1, productVersion: 'release/v3.10.3',
+        report: '# 结论\n完整报告。',
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    // Metadata line: configured version, formatted submit time, compact id.
+    expect(screen.getByText('版本 release/v3.10.3')).toBeTruthy()
+    expect(screen.getByText('#qzh-case')).toBeTruthy()
+    expect(screen.getByText(/提交 \d{2}\/\d{2}/)).toBeTruthy()
+    // The full id and the exact timestamp stay reachable via title attributes.
+    expect(screen.getByText('#qzh-case').getAttribute('title')).toBe('qzh-case-abcdef12')
+    // The completed report exposes a copy action.
+    expect(screen.getByRole('button', { name: '复制报告' })).toBeTruthy()
+  })
 })
 
 describe('QZH full-log archive upload', () => {
