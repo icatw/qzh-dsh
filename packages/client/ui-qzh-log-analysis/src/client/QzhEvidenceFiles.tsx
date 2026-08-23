@@ -13,6 +13,8 @@ interface Props {
   readonly caseId: QzhCaseView['id']
   /** Triggers the browser download of one stored bundle. */
   readonly onDownloadArchive: (category: QzhLogCategory) => Promise<void>
+  /** Preview one evidence file's content (`server/…` or `terminal/…` path). */
+  readonly onPreviewFile: (path: string) => Promise<void>
 }
 
 /** Human-readable byte size. */
@@ -23,7 +25,7 @@ function formatBytes(bytes: number): string {
 }
 
 /** Collapsible evidence-file listing for the QZH details dock. */
-export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDownloadArchive }: Props) {
+export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDownloadArchive, onPreviewFile }: Props) {
   const [open, setOpen] = useState(false)
   const [downloadingCategory, setDownloadingCategory] = useState<QzhLogCategory | undefined>()
   const [downloadError, setDownloadError] = useState<string | undefined>()
@@ -63,15 +65,21 @@ export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDow
       {open && (
         <div className={css.evidenceRows}>
           {files.map(file => (
-            <div key={`${file.category}/${file.path}`} className={css.evidenceRow}>
+            <button
+              type="button"
+              key={`${file.category}/${file.path}`}
+              className={css.evidenceRow}
+              title={`点击查看 ${file.path}`}
+              onClick={() => { void onPreviewFile(file.path) }}
+            >
               <div className={css.evidenceMain}>
-                <span title={`${file.category}/${file.path}`}>{file.path}</span>
+                <span className={css.evidencePath}>{file.path}</span>
                 <span>{formatBytes(file.size)}{file.lineCount !== undefined ? ` · ${String(file.lineCount)} 行` : ''} · {categoryLabel(file.category)}{file.stream !== 'log' ? ` · ${file.stream}` : ''}</span>
                 {file.sample !== undefined && file.sample !== '' && (
                   <span className={css.evidenceSample} title={file.sample}>{file.sample}</span>
                 )}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

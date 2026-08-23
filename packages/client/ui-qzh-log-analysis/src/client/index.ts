@@ -4,7 +4,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
-  QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult,
+  QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary,
+  QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhComposer } from './QzhComposer.tsx'
 import { QzhEvidenceDock } from './QzhEvidenceDock.tsx'
@@ -40,12 +41,15 @@ export function apply(ctx: ClientContext): void {
   }, 'ui-qzh-log-analysis: workbench follows current session')
   const store = createQzhSessionStore()
   const actions = (sessionId: SessionId) => ({
-    createCase: (request: QzhCreateCaseRequest): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.createCase(sessionId, request)),
+    createCase: (request: QzhCreateCaseRequest): Promise<QzhCaseView> =>
+      remoteValue(ctx.remote.qzhLogAnalysis.createCase(sessionId, request)),
     setEvidence: (id: QzhCaseView['id'], evidence: QzhEvidenceSummary): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setEvidence(sessionId, id, evidence)),
     uploadEvidenceArchive: (id: QzhCaseView['id'], upload: QzhArchiveUpload): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.uploadEvidenceArchive(sessionId, id, upload)),
     getCase: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.getCase(sessionId, id)),
     getActiveCase: (): Promise<QzhCaseView | undefined> => remoteValue(ctx.remote.qzhLogAnalysis.getActiveCase(sessionId)),
     getEvidenceTree: (id: QzhCaseView['id']): Promise<QzhLogListResult> => remoteValue(ctx.remote.qzhLogAnalysis.getEvidenceTree(sessionId, id)),
+    readEvidenceRange: (id: QzhCaseView['id'], path: string): Promise<QzhLogReadResult> =>
+      remoteValue(ctx.remote.qzhLogAnalysis.readEvidenceRange(sessionId, id, path, undefined, undefined)),
     downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory): Promise<QzhArchiveDownload | undefined> => remoteValue(ctx.remote.qzhLogAnalysis.downloadEvidenceArchive(sessionId, id, category)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
     setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.setFeedback(sessionId, id, kind, comment)),
@@ -73,21 +77,22 @@ export function apply(ctx: ClientContext): void {
 
   ctx.slots.inject('conversation.hero.empty', () => ctx.slots.register({
     name: 'conversation.hero.empty', store,
-    inject: (sessionId) => actions(sessionId),
+    inject: sessionId => actions(sessionId),
   }, QzhLogAnalysisSection))
 
   ctx.slots.inject('conversation.composer.qzh', () => ctx.slots.register({
     name: 'conversation.composer.qzh',
-    inject: (sessionId) => composerFace(sessionId),
+    inject: sessionId => composerFace(sessionId),
   }, QzhComposer))
 
   ctx.slots.inject('conversation.details.qzh', () => ctx.slots.register({
     name: 'conversation.details.qzh', store,
-    inject: (sessionId) => ({
+    inject: sessionId => ({
       startAnalysis: actions(sessionId).startAnalysis,
       getCase: actions(sessionId).getCase,
       getActiveCase: actions(sessionId).getActiveCase,
       getEvidenceTree: actions(sessionId).getEvidenceTree,
+      readEvidenceRange: actions(sessionId).readEvidenceRange,
       downloadEvidenceArchive: actions(sessionId).downloadEvidenceArchive,
       setFeedback: actions(sessionId).setFeedback,
       renameSession: actions(sessionId).renameSession,

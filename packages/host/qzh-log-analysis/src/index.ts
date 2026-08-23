@@ -987,6 +987,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    * @param endLine - inclusive end; capped at start + 499.
    * @returns redacted line-range text plus the file's total line count.
    */
+  @Remote('readEvidenceRange')
   async readEvidenceRange(
     sessionId: SessionId,
     id: QzhCaseId,

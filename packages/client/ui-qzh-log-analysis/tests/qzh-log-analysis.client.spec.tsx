@@ -219,7 +219,7 @@ describe('QZH full-log archive upload', () => {
 })
 
 describe('QzhEvidenceFiles', () => {
-  const baseProps = { archives: [] as readonly never[], caseId: 'case' as QzhCaseView['id'], onDownloadArchive: vi.fn() }
+  const baseProps = { archives: [] as readonly never[], caseId: 'case' as QzhCaseView['id'], onDownloadArchive: vi.fn(), onPreviewFile: vi.fn() }
   it('renders a collapsible file list with size, category, and sample', () => {
     render(<QzhEvidenceFiles
       files={[{
@@ -252,5 +252,22 @@ describe('QzhEvidenceFiles', () => {
       {...baseProps}
     />)
     expect(screen.getByText('证据摘要（1）')).toBeTruthy()
+  })
+
+  it('requests a preview when a file row is clicked', () => {
+    const onPreviewFile = vi.fn()
+    render(<QzhEvidenceFiles
+      files={[{ path: 'logs/app.log', size: 5, component: 'x', stream: 'log', category: 'server' }]}
+      clusters={[]}
+      summaryOnly={false}
+      archives={[]}
+      caseId={'case' as QzhCaseView['id']}
+      onDownloadArchive={vi.fn()}
+      onPreviewFile={onPreviewFile}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: /证据文件（1）/ }))
+    fireEvent.click(screen.getByRole('button', { name: /logs\/app\.log/ }))
+    // file.path is forwarded verbatim (already carries the category prefix).
+    expect(onPreviewFile).toHaveBeenCalledWith('logs/app.log')
   })
 })

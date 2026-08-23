@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhArchiveDownload, QzhCaseView, QzhFeedbackKind, QzhLogCategory, QzhLogListResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhArchiveDownload, QzhCaseView, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
@@ -13,6 +13,7 @@ interface Injected {
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly getActiveCase: () => Promise<QzhCaseView | undefined>
   readonly getEvidenceTree: (id: QzhCaseView['id']) => Promise<QzhLogListResult>
+  readonly readEvidenceRange: (id: QzhCaseView['id'], path: string) => Promise<QzhLogReadResult>
   readonly downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory) => Promise<QzhArchiveDownload | undefined>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
@@ -20,9 +21,17 @@ interface Injected {
 
 type Props = PropsRuntime<'conversation.details.qzh'> & PropsStore<ReturnType<typeof createQzhSessionStore>> & Injected
 
+/** One previewed evidence file's content and its pending/error state. */
+interface FilePreview {
+  path: string
+  text: string
+  totalLines: number
+}
+
 /** QZH evidence and progress panel rendered in DSH's right details column. */
 export function QzhEvidenceDock({
-  sessionId, useSessions, useStore, actions, startAnalysis, getCase, getActiveCase, getEvidenceTree, downloadEvidenceArchive, setFeedback, renameSession,
+  sessionId, useSessions, useStore, actions, startAnalysis, getCase, getActiveCase, getEvidenceTree,
+  readEvidenceRange, downloadEvidenceArchive, setFeedback, renameSession,
 }: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
@@ -30,13 +39,15 @@ export function QzhEvidenceDock({
   const caseId = state.caseView?.id
   const caseState = state.caseView?.state
   const [tree, setTree] = useState<QzhLogListResult | undefined>()
+  const [preview, setPreview] = useState<FilePreview | undefined>()
+  const [previewError, setPreviewError] = useState<string | undefined>()
   useEffect(() => {
     if (preset !== 'qzh') return
     let disposed = false
     // Restore the session's latest case after a reload: the store is
     // in-memory, so a reopened QZH session must re-fetch its case before it
     // can show evidence or the report.
-    void getActiveCase().then(restored => {
+    void getActiveCase().then((restored) => {
       if (disposed || restored === undefined || state.caseView !== undefined) return
       actions.setCaseView(restored)
     }).catch(() => {})
@@ -49,7 +60,7 @@ export function QzhEvidenceDock({
     // `evidence-ready` and `analyzing`, and the tree only reflects the full
     // bundle once it has landed. A `caseId`-only effect would freeze on the
     // summary tree fetched before the upload finished.
-    void getEvidenceTree(caseId).then(result => { if (!disposed) setTree(result) }).catch(() => {})
+    void getEvidenceTree(caseId).then((result) => { if (!disposed) setTree(result) }).catch(() => {})
     return () => { disposed = true }
   }, [caseId, caseState, getEvidenceTree, preset])
   useEffect(() => {
@@ -84,6 +95,17 @@ export function QzhEvidenceDock({
       actions.setCaseView(updated)
     } catch (error) {
       actions.setStatus(`反馈提交失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  const previewFile = async (path: string): Promise<void> => {
+    if (state.caseView === undefined) return
+    setPreviewError(undefined)
+    try {
+      const result = await readEvidenceRange(state.caseView.id, path)
+      setPreview({ path, text: result.text, totalLines: result.totalLines })
+    } catch (error) {
+      setPreview(undefined)
+      setPreviewError(`读取 ${path} 失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
   if (preset !== 'qzh') return null
@@ -133,8 +155,20 @@ export function QzhEvidenceDock({
             summaryOnly={tree.summaryOnly === true}
             caseId={state.caseView.id}
             onDownloadArchive={downloadArchive}
+            onPreviewFile={previewFile}
           />
         )}
+        {preview !== undefined && (
+          <section className={css.previewCard} aria-label="证据文件预览">
+            <div className={css.previewHeader}>
+              <span className={css.previewPath} title={preview.path}>{preview.path}</span>
+              <span className={css.previewMeta}>{String(preview.totalLines)} 行 · 前 500 行</span>
+              <button type="button" className={css.previewClose} onClick={() => { setPreview(undefined) }}>关闭</button>
+            </div>
+            <pre className={css.previewBody}>{preview.text}</pre>
+          </section>
+        )}
+        {previewError !== undefined && <p className={css.errorText}>{previewError}</p>}
         {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
       </div>
     )
