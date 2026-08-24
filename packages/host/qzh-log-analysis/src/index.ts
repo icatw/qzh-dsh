@@ -1235,6 +1235,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       `异常聚类：${JSON.stringify(evidence.clusters)}`,
       `日志短样例：${evidence.excerpt ?? '未提供'}`,
       '先调用 qzh_list_evidence 查看完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
+      '服务端（server/）与终端（terminal/）日志可能来自同一故障：先按时间线对齐两端事件（qzh_list_logs 的时间线视图与真实时间戳），再判断因果方向（服务端请求链路 → 终端下发状态），避免只看一侧就下结论。',
       '请先梳理证据、说明排查思路和初步发现；本轮不需要输出最终报告。用户会继续追问细节或补充证据，最后再由用户请求生成正式报告。',
     ].join('\n')
   }
@@ -1249,6 +1250,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       `故障描述：${record.failureDescription ?? '未提供'}`,
       '请按以下结构输出中文报告：结论；事实证据；代码定位（仓库/commit/路径/行号）；根因推断；可信度；信息缺口；现场验证步骤；修复建议（只描述，不修改代码）。',
       '报告中的日志引用必须使用证据包内的真实相对路径（path:line），代码引用必须包含仓库、commit、文件路径和行号。',
+      '若服务端与终端日志同时存在，结论必须说明跨侧因果方向（服务端请求链路 → 终端下发状态），并引用两端的时间对齐证据。',
     ].join('\n')
   }
 
