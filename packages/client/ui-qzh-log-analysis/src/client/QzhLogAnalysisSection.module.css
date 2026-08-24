@@ -159,3 +159,8 @@ button.evidenceRow .evidencePath { color: var(--dsw-alias-state-business-primary
 .timelineTime { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
 .timelinePath { flex: none; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timelineText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Evidence tree search + expand/collapse row above the file tree. */
+.evidenceSearchRow { display: flex; align-items: center; gap: 6px; padding: 8px 18px; border-top: 1px solid var(--dsw-alias-border-l1); }
+.evidenceSearch { box-sizing: border-box; flex: 1; min-width: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 6px 9px; font: inherit; font-size: 11px; }
+.evidenceSearch:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }

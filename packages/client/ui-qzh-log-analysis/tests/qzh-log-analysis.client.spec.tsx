@@ -369,6 +369,31 @@ describe('QzhEvidenceFiles', () => {
     expect(screen.getByText('证据摘要（1）')).toBeTruthy()
   })
 
+  it('filters the evidence tree by a search query and collapses all on demand', () => {
+    render(<QzhEvidenceFiles
+      files={[
+        { path: 'server/logs/app.log', size: 5, component: 'x', stream: 'log', category: 'server' },
+        { path: 'server/worker/w.out', size: 5, component: 'x', stream: 'log', category: 'server' },
+      ]}
+      clusters={[]}
+      summaryOnly={false}
+      archives={[]}
+      caseId={'case' as QzhCaseView['id']}
+      onDownloadArchive={vi.fn()}
+      onPreviewFile={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
+    // Search narrows the tree to matching files (ancestors forced open).
+    fireEvent.change(screen.getByLabelText('搜索证据文件'), { target: { value: 'app' } })
+    expect(screen.getByText('app.log')).toBeTruthy()
+    expect(screen.queryByText('w.out')).toBeNull()
+    // Clearing the search restores the full tree; collapse-all folds folders.
+    fireEvent.change(screen.getByLabelText('搜索证据文件'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '全部收起' }))
+    expect(screen.queryByText('app.log')).toBeNull()
+    expect(screen.queryByText('w.out')).toBeNull()
+  })
+
   it('requests a preview when a file row is clicked', () => {
     const onPreviewFile = vi.fn()
     render(<QzhEvidenceFiles

@@ -56,15 +56,44 @@ function buildEvidenceTree(files: readonly QzhEvidenceTreeFile[]): EvidenceDirNo
   return root
 }
 
+/** Keep only files whose path matches `query` plus their ancestor folders. */
+function filterTree(node: EvidenceDirNode, query: string): EvidenceDirNode | null {
+  const needle = query.toLowerCase()
+  const dirs = new Map<string, EvidenceDirNode>()
+  for (const [path, dir] of node.dirs) {
+    const filtered = filterTree(dir, needle)
+    if (filtered !== null) dirs.set(path, filtered)
+  }
+  const files = node.files.filter(file => file.path.toLowerCase().includes(needle))
+  if (dirs.size === 0 && files.length === 0) return null
+  return { name: node.name, path: node.path, dirs, files }
+}
+
+/** Collect every directory path in the tree (for collapse-all). */
+function collectDirs(node: EvidenceDirNode, into: string[]): void {
+  for (const dir of node.dirs.values()) {
+    into.push(dir.path)
+    collectDirs(dir, into)
+  }
+}
+
 /** Collapsible evidence-file listing for the QZH details dock. */
 export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDownloadArchive, onPreviewFile }: Props) {
   const [open, setOpen] = useState(false)
   const [downloadingCategory, setDownloadingCategory] = useState<QzhLogCategory | undefined>()
   const [downloadError, setDownloadError] = useState<string | undefined>()
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
+  const [query, setQuery] = useState('')
   // Nested directory tree (the path already carries the server/terminal
   // prefix), so a large bundle stays browsable like a file explorer.
   const tree = useMemo(() => buildEvidenceTree(files), [files])
+  // A non-empty search shows only matching files plus their ancestor chain,
+  // forced expanded; the empty search respects the manual fold state.
+  const isFiltering = query.trim() !== ''
+  const effectiveTree = useMemo(
+    () => isFiltering ? filterTree(tree, query.trim()) : tree,
+    [tree, query, isFiltering],
+  )
   const toggleDir = (dir: string): void => {
     setCollapsed((current) => {
       const next = new Set(current)
@@ -72,6 +101,12 @@ export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDow
       else next.add(dir)
       return next
     })
+  }
+  const expandAll = (): void => { setCollapsed(new Set()) }
+  const collapseAll = (): void => {
+    const paths: string[] = []
+    collectDirs(tree, paths)
+    setCollapsed(new Set(paths))
   }
   const hasArchives = archives.length > 0
   if (files.length === 0 && !hasArchives) return null
@@ -107,17 +142,34 @@ export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDow
         <span className={css.evidenceToggleAction}>{open ? '收起' : '展开'}</span>
       </button>
       {open && (
-        <div className={css.evidenceRows}>
-          <EvidenceDirBranch
-            node={tree}
-            depth={0}
-            collapsed={collapsed}
-            toggleDir={toggleDir}
-            onPreviewFile={onPreviewFile}
-            formatBytes={formatBytes}
-            categoryLabel={categoryLabel}
-          />
-        </div>
+        <>
+          <div className={css.evidenceSearchRow}>
+            <input
+              className={css.evidenceSearch}
+              type="search"
+              placeholder="搜索文件…"
+              value={query}
+              aria-label="搜索证据文件"
+              onChange={(event) => { setQuery(event.currentTarget.value) }}
+            />
+            <button type="button" className={css.copyButton} onClick={expandAll}>全部展开</button>
+            <button type="button" className={css.copyButton} onClick={collapseAll}>全部收起</button>
+          </div>
+          <div className={css.evidenceRows}>
+            {effectiveTree === null && <p className={css.muted}>没有匹配「{query.trim()}」的文件。</p>}
+            {effectiveTree !== null && (
+              <EvidenceDirBranch
+                node={effectiveTree}
+                depth={0}
+                collapsed={isFiltering ? new Set<string>() : collapsed}
+                toggleDir={toggleDir}
+                onPreviewFile={onPreviewFile}
+                formatBytes={formatBytes}
+                categoryLabel={categoryLabel}
+              />
+            )}
+          </div>
+        </>
       )}
     </section>
   )
