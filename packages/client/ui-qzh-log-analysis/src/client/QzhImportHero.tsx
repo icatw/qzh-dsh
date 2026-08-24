@@ -15,6 +15,8 @@ function formatBytes(bytes: number): string {
 
 interface Props {
   readonly entries: readonly ImportedLogEntry[]
+  /** Kept as a compatibility seat for older fixtures; clustering is Host/Agent-owned. */
+  readonly clusters?: readonly unknown[]
   readonly onFiles: (category: QzhLogCategory, files: FileList | null) => void
   readonly status: string
 }

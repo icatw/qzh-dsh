@@ -8,7 +8,7 @@
  * their CAS ref reads the session's current projected value at call time.
  * Goal creation stays on the /goal host command.
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.dock entry).
@@ -54,7 +54,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
   }, GoalCommandInputView))
 
-  const sessions = ctx.sessions
+  const sessions = ctx.get('sessions') as unknown as ISessions
 
   /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
   const refOf = (sessionId: SessionId): GoalRef | undefined => {

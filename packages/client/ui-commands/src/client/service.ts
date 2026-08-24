@@ -449,6 +449,6 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   private sessions(): ISessions {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('ui-commands: sessions service unavailable')
-    return sessions
+    return sessions as unknown as ISessions
   }
 }

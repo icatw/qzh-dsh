@@ -102,6 +102,6 @@ export class InputTriggerService extends Service implements InputTriggerServiceC
   private sessions(): ISessions {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('ui-input-trigger: sessions service unavailable')
-    return sessions
+    return sessions as unknown as ISessions
   }
 }

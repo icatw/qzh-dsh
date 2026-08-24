@@ -6,7 +6,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14, IconCloseOutline16,
   IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, Tooltip,
@@ -224,13 +224,16 @@ export const queueDockEntry = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
+    const sessions = (typeof (ctx as Context & { get?: unknown }).get === 'function'
+      ? ctx.get('sessions')
+      : (ctx as Context & { sessions: unknown }).sessions) as unknown as ISessions
     ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
       name: 'conversation.input.dock',
       id: 'queue',
       order: 20,
       locale: NS,
       inject: (sessionId: SessionId): QueueDockInjected => {
-        const actx = ctx.sessions.scope(sessionId)
+        const actx = sessions.scope(sessionId)
         if (actx === undefined) throw new Error(`queue dock: session "${sessionId}" resolved no scope`)
         const conversation = actx.get('conversation')
         if (conversation === undefined) throw new Error('queue dock: conversation service unavailable')

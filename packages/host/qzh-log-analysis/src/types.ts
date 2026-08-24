@@ -78,6 +78,10 @@ export interface QzhCaseView {
   readonly report?: string
   /** Stable failure detail when the DSH analysis turn cannot complete. */
   readonly analysisError?: string
+  /** Durable analysis job identity used to resume an interrupted Host run. */
+  readonly analysisJobId?: string
+  /** Phase persisted with the job so a Host restart can resume the right turn. */
+  readonly analysisJobPhase?: 'investigation' | 'report'
   /** Original name of the uploaded log bundle (audit label; never a path). */
   readonly archiveFilename?: string
   /** Per-field-side uploaded bundle names (audit labels; never paths). */

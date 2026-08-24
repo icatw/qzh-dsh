@@ -267,6 +267,15 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     // scoping smell.
     // oxlint-disable-next-line no-this-alias
     const service = this
+    // A case can remain in `analyzing` while the Host process is restarted.
+    // The persisted job phase is resumed when its owning Agent is published;
+    // no in-memory promise is treated as the source of truth.
+    ctx.effect(() => {
+      const dispose = ctx.on('agent/created', ({ agent }) => {
+        void service.resumePersistedJob(agent.session.header.id)
+      })
+      return dispose
+    }, 'qzh-log-analysis: resume persisted jobs')
     const tools = ctx.get('tools')
     const systemPrompt = ctx.get('systemPrompt')
     if (tools === undefined || systemPrompt === undefined) return
@@ -644,17 +653,26 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    */
   @Remote('startAnalysis')
   async startAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<QzhAnalysisStartResult> {
+    await this.casesUnit()
     const record = this.requireCase(sessionId, id)
     if (record.evidence === undefined) throw new Error('QZH 案例尚未提交日志证据摘要，请先导入并确认发送内容')
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
     // Re-entering analysis (from a completed report, or a fresh start) is
     // always allowed: the case is live until the user asks for a report.
     if (record.state === 'analyzing' && record.analysisSessionId !== undefined) {
+      void this.resumePersistedJob(sessionId)
       return { case: { ...record }, sessionId: record.analysisSessionId }
     }
     const existing = this.analysisRuns.get(id)
     if (existing !== undefined) return { case: { ...record }, sessionId }
-    const next: CaseRecord = { ...record, state: 'analyzing', updatedAt: now(), analysisSessionId: sessionId }
+    const next: CaseRecord = {
+      ...record,
+      state: 'analyzing',
+      updatedAt: now(),
+      analysisSessionId: sessionId,
+      analysisJobId: `qzh-analysis-${randomUUID()}`,
+      analysisJobPhase: 'investigation',
+    }
     delete next.report
     delete next.analysisError
     this.cases.set(id, next)
@@ -673,15 +691,24 @@ export class QzhLogAnalysisService extends TypertRemoteService {
    */
   @Remote('generateReport')
   async generateReport(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
+    await this.casesUnit()
     const record = this.requireCase(sessionId, id)
     if (record.evidence === undefined) throw new Error('QZH 案例尚未提交日志证据摘要，请先导入并确认发送内容')
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
     if (record.state !== 'analyzing') throw new Error('QZH 案例未在分析中，请先启动分析')
     const existing = this.analysisRuns.get(id)
     if (existing !== undefined) throw new Error('QZH 案例分析正在进行，请稍候')
+    const next: CaseRecord = {
+      ...record,
+      analysisJobId: `qzh-report-${randomUUID()}`,
+      analysisJobPhase: 'report',
+      updatedAt: now(),
+    }
+    this.cases.set(id, next)
+    await this.persistCase(id)
     const run = this.generateReportRun(sessionId, id).finally(() => { this.analysisRuns.delete(id) })
     this.analysisRuns.set(id, run)
-    return { ...this.requireCase(sessionId, id) }
+    return { ...next }
   }
 
   /** Read one case summary without exposing the internal mutable record.
@@ -692,6 +719,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   @Remote('getCase')
   async getCase(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
     await this.casesUnit()
+    void this.resumePersistedJob(sessionId)
     return { ...this.requireCase(sessionId, id) }
   }
 
@@ -702,6 +730,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   @Remote('getActiveCase')
   async getActiveCase(sessionId: SessionId): Promise<QzhCaseView | undefined> {
     await this.casesUnit()
+    void this.resumePersistedJob(sessionId)
     const activeId = this.activeCases.get(sessionId)
     if (activeId === undefined) return undefined
     const record = this.cases.get(activeId)
@@ -1125,6 +1154,20 @@ export class QzhLogAnalysisService extends TypertRemoteService {
     return { ...this.resolveToolCase(sessionId) }
   }
 
+  /** Resume the durable phase for one session when its Agent is available. */
+  private async resumePersistedJob(sessionId: SessionId): Promise<void> {
+    const activeId = this.activeCases.get(sessionId)
+    const record = activeId === undefined ? undefined : this.cases.get(activeId)
+    if (record === undefined || record.state !== 'analyzing' || record.analysisJobPhase === undefined) return
+    if (this.analysisRuns.has(record.id)) return
+    const agent = this.ownerCtx.agents.get(sessionId)
+    if (agent === undefined || agent.session.header.id !== sessionId) return
+    const run = record.analysisJobPhase === 'report'
+      ? this.generateReportRun(sessionId, record.id)
+      : this.runAnalysisTurn(sessionId, record.id)
+    this.analysisRuns.set(record.id, run.finally(() => { this.analysisRuns.delete(record.id) }))
+  }
+
   /** Structure-first evidence projection for the model-facing list tool.
    * @param record - the tool-resolved case record.
    * @returns detached files with per-file layout samples.
@@ -1149,6 +1192,11 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         source: { kind: 'plugin', plugin: 'qzh-log-analysis', form: 'instructions' },
       }))
       await agent.whenIdle()
+      const latest = this.requireCase(sessionId, id)
+      const settled: CaseRecord = { ...latest, updatedAt: now() }
+      delete settled.analysisJobPhase
+      this.cases.set(id, settled)
+      await this.persistCase(id)
     } catch (error: unknown) {
       const latest = this.requireCase(sessionId, id)
       const failed: CaseRecord = {
@@ -1157,6 +1205,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         updatedAt: now(),
         analysisError: `分析轮失败：${error instanceof Error ? error.message : String(error)}`,
       }
+      delete failed.analysisJobPhase
       delete failed.report
       this.cases.set(id, failed)
       await this.persistCase(id)
@@ -1169,14 +1218,20 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       const record = this.requireCase(sessionId, id)
       const agent = this.ownerCtx.agents.get(sessionId)
       if (agent === undefined || agent.session.header.id !== sessionId) throw new Error(`QZH session ${String(sessionId)} is not live`)
+      // Fence extraction at the report request. Earlier assistant messages
+      // belong to the investigation turn and must never become the report.
+      const beforeSeq = agent.session.events.at(-1)?.seq ?? 0
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: this.reportPrompt(record) }],
         source: { kind: 'plugin', plugin: 'qzh-log-analysis', form: 'instructions' },
       }))
       await agent.whenIdle()
       const report = agent.session.events
-        .filter(event => event.type === 'assistant/message')
-        .map(event => event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+        .filter(event => event.seq > beforeSeq && event.type === 'assistant/message')
+        .map((event) => {
+          const content = (event.data as { message: { content: readonly { type: string; text?: string }[] } }).message.content
+          return content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+        })
         .filter(text => text.length > 0)
         .at(-1)
       const latest = this.requireCase(sessionId, id)
@@ -1187,6 +1242,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         updatedAt: now(),
         ...(report === undefined ? { analysisError: 'DSH Agent 未返回文本报告' } : { report }),
       }
+      delete completed.analysisJobPhase
       if (report === undefined) delete completed.report
       else if (completed.state === 'completed_with_limitations') {
         completed.analysisError = `报告缺少必要结构（结论${assessment.conclusion ? '✓' : '✗'} 事实证据${assessment.evidence ? '✓' : '✗'} 代码定位${assessment.codeLocation ? '✓' : '✗'}），已按受限完成保留。`
@@ -1201,6 +1257,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
         updatedAt: now(),
         analysisError: error instanceof Error ? error.message : String(error),
       }
+      delete failed.analysisJobPhase
       delete failed.report
       this.cases.set(id, failed)
       await this.persistCase(id)

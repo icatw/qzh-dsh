@@ -385,11 +385,11 @@ export class SlotRegistry extends Service {
   /** Build once after both object-layer services mount; per-session provide bundles still resolve lazily. */
   private hostFace(): SlotRendererHost {
     if (this._host !== undefined) return this._host
-    const sessions = this.ctx.get('sessions')
+    const sessions = this.ctx.get('sessions') as unknown as import('./contract/sessions.ts').ISessions
     if (sessions === undefined) {
       throw new Error("renderSlot('root') before the sessions service mounted — boot order puts runtime apply first")
     }
-    const workspaces = this.ctx.get('workspaces')
+    const workspaces = this.ctx.get('workspaces') as unknown as import('./contract/workspaces.ts').IWorkspaces
     if (workspaces === undefined) {
       throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }

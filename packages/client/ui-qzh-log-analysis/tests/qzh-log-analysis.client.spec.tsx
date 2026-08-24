@@ -93,11 +93,26 @@ describe('QZH blank-session analysis surface', () => {
     expect(input.startAnalysis).toHaveBeenCalledWith('case')
   })
 
+  it('resets consent when a new import changes the outbound payload', async () => {
+    const { props: input } = props()
+    const first = new File(['2026-08-21 10:20:30 ERROR first'], 'first.log', { type: 'text/plain' })
+    const second = new File(['2026-08-21 10:20:31 ERROR second'], 'second.log', { type: 'text/plain' })
+    render(<QzhLogAnalysisSection {...input} />)
+    const picker = screen.getAllByLabelText('选择日志目录')[0]!
+    fireEvent.change(picker, { target: { files: [first] } })
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeTruthy())
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    fireEvent.change(picker, { target: { files: [second] } })
+    await waitFor(() => expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false))
+    expect(screen.getByText(/second/)).toBeTruthy()
+  })
+
   it('opens the native details column when an active QZH case is present', async () => {
     const { instance, props: input } = props()
     instance.actions.setImported([{
       path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', size: 1, source: 'file', sample: '', category: 'server',
-    }], [])
+    }], false)
     instance.actions.setCaseView({
       id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'analyzing', createdAt: 1, updatedAt: 1,
     })
@@ -290,7 +305,7 @@ describe('QZH full-log archive upload', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
     await waitFor(() => expect(input.setEvidence).toHaveBeenCalled())
     await waitFor(() => expect(upload).toHaveBeenCalled())
-    const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
+    const [, payload] = upload.mock.calls[0] as unknown as [unknown, { filename: string; contentBase64: string }]
     expect(payload.filename).toBe('logs.zip')
     expect(payload.contentBase64).toBe(Buffer.from(zipBytes).toString('base64'))
     await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
@@ -307,7 +322,7 @@ describe('QZH full-log archive upload', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
     await waitFor(() => expect(input.setEvidence).toHaveBeenCalled())
     await waitFor(() => expect(upload).toHaveBeenCalled())
-    const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
+    const [, payload] = upload.mock.calls[0] as unknown as [unknown, { filename: string; contentBase64: string }]
     // The extracted directory is re-packed so the Agent gets full-log access.
     expect(payload.filename).toBe('terminal-logs.zip')
     expect(payload.contentBase64.length).toBeGreaterThan(0)

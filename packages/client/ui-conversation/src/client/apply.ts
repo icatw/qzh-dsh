@@ -113,7 +113,7 @@ function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | nu
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
-  const sessions = ctx.sessions
+  const sessions = ctx.get('sessions') as unknown as ISessions
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots

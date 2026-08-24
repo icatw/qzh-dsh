@@ -68,7 +68,7 @@ export function apply(ctx: ClientContext): void {
   ))
 
   const skills = (ctx.get('connection') as ConnectionHandle).api.skills
-  const sessions = ctx.get('sessions') as ISessions
+  const sessions = ctx.get('sessions') as unknown as ISessions
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
   const fetches = new Map<SessionId, CatalogFetch>()

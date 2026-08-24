@@ -1,6 +1,14 @@
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QzhCaseView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
+import type { QzhLogCategory } from '../log-layout.ts'
+
+/** Display-only metadata for a full archive that will be uploaded after consent. */
+export interface QzhUploadPreview {
+  readonly category: QzhLogCategory
+  readonly filename: string
+  readonly size: number
+}
 
 /** JSON-safe state shared by the QZH details panel and the session header action. */
 export interface QzhSessionState {
@@ -10,12 +18,14 @@ export interface QzhSessionState {
   customerLabel: string
   productVersion: string
   failureDescription: string
+  uploads: QzhUploadPreview[]
   caseView?: QzhCaseView
   panelOpen: boolean
 }
 
 type QzhSessionActions = {
-  setImported: (draft: QzhSessionState, entries: readonly ImportedLogEntry[]) => void
+  setImported: (draft: QzhSessionState, entries: readonly ImportedLogEntry[], resetCase?: boolean) => void
+  setUploads: (draft: QzhSessionState, uploads: readonly QzhUploadPreview[]) => void
   setStatus: (draft: QzhSessionState, status: string) => void
   setConsent: (draft: QzhSessionState, consent: boolean) => void
   setCustomerLabel: (draft: QzhSessionState, value: string) => void
@@ -30,17 +40,20 @@ export function createQzhSessionStore(): EngineStoreHandle<QzhSessionState, QzhS
   return defineStore({
     init: (): QzhSessionState => ({
       entries: [], status: '导入日志开始分析。文件只在浏览器本地读取。', consent: false,
-      customerLabel: '', productVersion: '', failureDescription: '', panelOpen: true,
+      customerLabel: '', productVersion: '', failureDescription: '', uploads: [], panelOpen: true,
     }),
     persist: 'dsh.qzh.log-analysis',
     actions: {
-      setImported: (draft, entries) => {
+      setImported: (draft, entries, resetCase = true) => {
         draft.entries = [...entries]
         draft.panelOpen = true
-        // A new local import starts a new evidence submission. Do not keep a
-        // stale in-memory Host case ID across imports or Host restarts.
-        delete draft.caseView
+        // A new local import starts a new evidence submission. Supplementary
+        // imports in the details panel pass false and keep the current case.
+        const shouldResetCase = resetCase ?? true
+        draft.consent = false
+        if (shouldResetCase) delete draft.caseView
       },
+      setUploads: (draft, uploads) => { draft.uploads = [...uploads] },
       setStatus: (draft, status) => { draft.status = status },
       setConsent: (draft, consent) => { draft.consent = consent },
       setCustomerLabel: (draft, value) => { draft.customerLabel = value },

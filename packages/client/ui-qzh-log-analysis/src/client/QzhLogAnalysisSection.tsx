@@ -12,7 +12,7 @@ import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
 import { QzhConsentPanel } from './QzhConsentPanel.tsx'
 import { QzhEvidencePreview } from './QzhEvidencePreview.tsx'
 import { QzhImportHero } from './QzhImportHero.tsx'
-import type { QzhSessionState, createQzhSessionStore } from './store.ts'
+import type { QzhSessionState, QzhUploadPreview, createQzhSessionStore } from './store.ts'
 import css from './QzhLogAnalysisSection.module.css'
 
 interface QzhActions {
@@ -21,7 +21,7 @@ interface QzhActions {
   readonly uploadEvidenceArchive: (id: QzhCaseView['id'], upload: QzhArchiveUpload) => Promise<QzhCaseView>
   readonly getCase: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly startAnalysis: (id: QzhCaseView['id']) => Promise<QzhCaseView>
-  readonly generateReport: (id: QzhCaseView['id']) => Promise<QzhCaseView>
+  readonly generateReport?: (id: QzhCaseView['id']) => Promise<QzhCaseView>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession?: (title: string) => Promise<void>
 }
@@ -86,7 +86,7 @@ export function QzhLogAnalysisSection({
         if (!disposed && error instanceof Error && /not found/i.test(error.message)) {
           actions.setCaseView(undefined)
           actions.setStatus('Host 中的案例已失效，请重新导入日志摘要。')
-        }
+        } else if (!disposed) actions.setStatus(`刷新 QZH 案例失败：${error instanceof Error ? error.message : String(error)}`)
       }
     }
     void refreshCase()
@@ -102,6 +102,8 @@ export function QzhLogAnalysisSection({
     actions.setStatus('正在读取日志文件清单…')
     try {
       const entries: ImportedLogEntry[] = []
+      archiveRef.current.delete(category)
+      const uploads: QzhUploadPreview[] = []
       // Directory files are re-packed into one zip so a fully extracted log
       // bundle still lands as the durable full archive (summary-only would
       // otherwise hide complete logs from qzh_search_logs/qzh_list_logs).
@@ -114,6 +116,7 @@ export function QzhLogAnalysisSection({
             return
           }
           archiveRef.current.set(category, { filename: file.name, category, contentBase64: bytesToBase64(bytes) })
+          uploads.push({ category, filename: file.name, size: bytes.byteLength })
           const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
           continue
@@ -135,11 +138,21 @@ export function QzhLogAnalysisSection({
         archiveRef.current.set(category, {
           filename: `${category}-logs.zip`, category, contentBase64: bytesToBase64(archiveBytes),
         })
+        uploads.splice(0, uploads.length, { category, filename: `${category}-logs.zip`, size: archiveBytes.byteLength })
       }
-      actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)))
-      actions.setStatus(entries.length === 0
+      const mergedEntries = [
+        ...state.entries.filter(entry => entry.category !== category),
+        ...entries,
+      ].sort((left, right) => left.path.localeCompare(right.path))
+      const mergedUploads = [
+        ...state.uploads.filter(upload => upload.category !== category),
+        ...uploads,
+      ]
+      actions.setImported(mergedEntries)
+      actions.setUploads(mergedUploads)
+      actions.setStatus(mergedEntries.length === 0
         ? '没有识别到日志文件，请选择 .log/.out，或包含时间戳/日志级别的 .txt 文件。'
-        : `已读取 ${String(entries.length)} 个日志文件；确认后发送给内网分析，Agent 将自行扫描聚类。`)
+        : `已读取 ${String(mergedEntries.length)} 个日志文件；确认后发送给内网分析，Agent 将自行扫描聚类。`)
     } catch (error) {
       actions.setStatus(`导入失败：${error instanceof Error ? error.message : String(error)}`)
     }
@@ -167,7 +180,7 @@ export function QzhLogAnalysisSection({
       if (archiveRef.current.size > 0) {
         actions.setStatus('正在上传完整日志包（摘要分析可先开始）…')
         for (const upload of archiveRef.current.values()) {
-          uploadResults.push(uploadEvidenceArchive(saved.id, upload).then(() => { actions.setCaseView(saved) }))
+          uploadResults.push(uploadEvidenceArchive(saved.id, upload).then((updated) => { actions.setCaseView(updated) }))
         }
       }
       const started = await startAnalysis(saved.id)
@@ -210,6 +223,21 @@ export function QzhLogAnalysisSection({
     }
   }
 
+  const requestReport = async (): Promise<void> => {
+    if (state.caseView === undefined || generateReport === undefined || analysisRunning) return
+    setAnalysisRunning(true)
+    actions.setStatus('正在提取当前会话的分析报告…')
+    try {
+      const updated = await generateReport(state.caseView.id)
+      actions.setCaseView(updated)
+      actions.setStatus('报告已生成并保存到当前会话。')
+    } catch (error) {
+      actions.setStatus(`生成报告失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setAnalysisRunning(false)
+    }
+  }
+
   const submitFeedback = async (kind: QzhFeedbackKind, comment?: string): Promise<void> => {
     if (state.caseView === undefined) return
     try {
@@ -229,7 +257,7 @@ export function QzhLogAnalysisSection({
       />
       {evidence !== undefined && state.caseView === undefined && (
         <div className={css.flowBody}>
-          <QzhEvidencePreview evidence={evidence} />
+          <QzhEvidencePreview evidence={evidence} uploads={state.uploads} />
           <QzhConsentPanel
             customerLabel={state.customerLabel}
             productVersion={state.productVersion}
@@ -250,10 +278,10 @@ export function QzhLogAnalysisSection({
           <QzhAnalysisStatus
             caseView={state.caseView} running={analysisRunning}
             onStart={() => { void retryAnalysis() }}
-            onGenerateReport={() => { if (state.caseView !== undefined) void generateReport(state.caseView.id).then(actions.setCaseView) }}
+            onGenerateReport={() => { void requestReport() }}
             onFeedback={submitFeedback}
           />
-          {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
+          {evidence !== undefined && <QzhEvidencePreview evidence={evidence} uploads={state.uploads} />}
         </div>
       )}
     </section>

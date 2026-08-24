@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { DocumentTitle } from './DocumentTitle.tsx'
 // Type-only: pulls the runtime's SlotMap declaration merge (the 'root' key) into this program.
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Assembly inputs: the active app-shell plugin ctx (slots/sessions/layout services provided). */
 export interface AssemblyDeps {
@@ -25,7 +25,7 @@ export interface AssemblyDeps {
  */
 export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
   const { ctx } = deps
-  const sessions = ctx.get('sessions')
+  const sessions = ctx.get('sessions') as unknown as ISessions
   if (sessions === undefined) throw new Error('shell assembly: sessions service unavailable')
   const useSessions = bindSnapshotSelector(sessions.list)
   const SessionDocumentTitle = (): ReactNode => {

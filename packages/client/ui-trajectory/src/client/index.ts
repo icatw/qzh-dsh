@@ -3,7 +3,7 @@
  * slot without defining a service.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the 'conversation.view' SlotMap row (declared by the slot's
@@ -28,6 +28,7 @@ export const inject = ['slots', 'conversationEvents', 'conversationViews', 'sess
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
+  const sessions = ctx.get('sessions') as unknown as ISessions
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-trajectory: dictionaries')
   // Registration-time text (the view tab label) reads through the bound
   // translate as a thunk, so it follows the active locale without
@@ -47,7 +48,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     label: () => t('view.trajectory'),
     inject: (sessionId: SessionId): TrajectoryViewInjected => {
-      const session = ctx.sessions.binding(sessionId)?.session
+      const session = sessions.binding(sessionId)?.session
       if (session === undefined) {
         throw new Error(`ui-trajectory: session "${sessionId}" is unavailable`)
       }

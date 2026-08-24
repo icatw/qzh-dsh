@@ -307,7 +307,7 @@ describe('WorkspaceRuntime', () => {
 
     const qzhGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
     const standardGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
-    api.onCreate = (payload) => payload.agentPreset === 'qzh' ? qzhGate.promise : standardGate.promise
+    api.onCreate = payload => (payload as { agentPreset?: string }).agentPreset === 'qzh' ? qzhGate.promise : standardGate.promise
     const qzh = workspaces.connectWorkspace(wid('alpha'), 'qzh')
     const standard = workspaces.connectWorkspace(wid('alpha'), 'standard')
     await Promise.resolve()

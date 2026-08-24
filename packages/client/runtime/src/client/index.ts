@@ -16,6 +16,7 @@ import type { UseProjection } from './sessions/projection-store.ts'
 import { ConversationEventRegistry } from './conversation/event-registry.ts'
 import { ConversationViewRegistry } from './conversation/view-registry.ts'
 
+
 export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 
 export { SlotRegistry } from './slots.ts'
@@ -173,11 +174,10 @@ declare module '@deepseek-ai/cordis' {
     /** Per-target Conversation snapshot builder registry. */
     conversationViews: import('./conversation/view-registry.ts').ConversationViewRegistry
     /** The outward face only; the concrete service stays inside the runtime. */
-    sessions: import('./contract/sessions.ts').ISessions
-    /** The outward face only; the concrete service stays inside the runtime. */
     workspaces: import('./contract/workspaces.ts').IWorkspaces
   }
 }
+
 
 /** Required services: the wire handle and Client Typert registry. */
 export const inject = ['connection', 'typert', 'remote', 'remote.commands']

@@ -1,6 +1,6 @@
 /** Browser plugin for durable workflow-run Conversation Nodes. */
 
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { WorkflowRunPanel, type WorkflowRunInjected } from './WorkflowRunPanel.tsx'
@@ -19,6 +19,7 @@ export const inject = ['conversationEvents', 'slots', 'sessions', 'locale']
 
 /** Register the workflow Definition, dictionary, and keyed Chat renderer. */
 export function apply(ctx: ClientContext): void {
+  const sessions = ctx.get('sessions') as unknown as ISessions
   ctx.conversationEvents.register(workflowRunDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workflow-run: dictionaries')
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
@@ -26,7 +27,7 @@ export function apply(ctx: ClientContext): void {
     key: 'workflow-run',
     locale: NS,
     inject: (): WorkflowRunInjected => ({
-      openSession: (id: SessionId) => { ctx.sessions.open(id) },
+      openSession: (id: SessionId) => { sessions.open(id) },
     }),
   }, WorkflowRunPanel))
 }

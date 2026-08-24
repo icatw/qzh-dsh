@@ -68,7 +68,9 @@ export function QzhEvidenceDock({
     void getActiveCase().then((restored) => {
       if (disposed || restored === undefined || state.caseView !== undefined) return
       actions.setCaseView(restored)
-    }).catch(() => {})
+    }).catch((error) => {
+      if (!disposed) actions.setStatus(`恢复 QZH 案例失败：${error instanceof Error ? error.message : String(error)}`)
+    })
     return () => { disposed = true }
   }, [actions, getActiveCase, preset])
   useEffect(() => {
@@ -78,12 +80,18 @@ export function QzhEvidenceDock({
     // `evidence-ready` and `analyzing`, and the tree only reflects the full
     // bundle once it has landed. A `caseId`-only effect would freeze on the
     // summary tree fetched before the upload finished.
-    void getEvidenceTree(caseId).then((result) => { if (!disposed) setTree(result) }).catch(() => {})
+    void getEvidenceTree(caseId).then((result) => { if (!disposed) setTree(result) }).catch((error) => {
+      if (!disposed) actions.setStatus(`加载证据目录失败：${error instanceof Error ? error.message : String(error)}`)
+    })
     return () => { disposed = true }
   }, [caseId, caseState, getEvidenceTree, preset])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
-    if (sessionSummary?.title === undefined && state.caseView !== undefined) void renameSession(buildSessionTitle(state.caseView))
+    if (sessionSummary?.title === undefined && state.caseView !== undefined) {
+      void renameSession(buildSessionTitle(state.caseView)).catch((error) => {
+        actions.setStatus(`会话标题更新失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
     let disposed = false
     const refreshCase = async (): Promise<void> => {
       try {
@@ -93,7 +101,7 @@ export function QzhEvidenceDock({
         if (!disposed && error instanceof Error && /not found/i.test(error.message)) {
           actions.setCaseView(undefined)
           actions.setStatus('Host 中的案例已失效，请重新导入日志摘要。')
-        }
+        } else if (!disposed) actions.setStatus(`刷新 QZH 案例失败：${error instanceof Error ? error.message : String(error)}`)
       }
     }
     void refreshCase()
@@ -103,13 +111,24 @@ export function QzhEvidenceDock({
   }, [actions, caseId, caseState, getCase, preset, renameSession, sessionSummary?.title])
   const retry = async (): Promise<void> => {
     if (state.caseView === undefined) return
-    const started = await startAnalysis(state.caseView.id)
-    actions.setCaseView(started)
+    try {
+      const started = await startAnalysis(state.caseView.id)
+      actions.setCaseView(started)
+      actions.setStatus('分析已重新启动。')
+    } catch (error) {
+      actions.setStatus(`启动分析失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   const generate = async (): Promise<void> => {
     if (state.caseView === undefined) return
-    const generated = await generateReport(state.caseView.id)
-    actions.setCaseView(generated)
+    actions.setStatus('正在提取当前会话的分析报告…')
+    try {
+      const generated = await generateReport(state.caseView.id)
+      actions.setCaseView(generated)
+      actions.setStatus('报告已生成并保存到当前会话。')
+    } catch (error) {
+      actions.setStatus(`生成报告失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   const submitFeedback = async (kind: QzhFeedbackKind, comment?: string): Promise<void> => {
     if (state.caseView === undefined) return
@@ -156,7 +175,7 @@ export function QzhEvidenceDock({
         return
       }
       const mergedEntries = mergeEntries(state.entries, entries)
-      actions.setImported(mergedEntries)
+      actions.setImported(mergedEntries, false)
       const mergedEvidence = buildQzhEvidence(mergedEntries)
       const saved = await setEvidence(caseRef.id, mergedEvidence)
       actions.setCaseView(saved)
@@ -297,7 +316,7 @@ export function QzhEvidenceDock({
               </section>
             )}
             {previewError !== undefined && <p className={css.errorText}>{previewError}</p>}
-            {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
+            {evidence !== undefined && <QzhEvidencePreview evidence={evidence} uploads={state.uploads} />}
           </>
         ) : (
           <QzhAnalysisStatusReport

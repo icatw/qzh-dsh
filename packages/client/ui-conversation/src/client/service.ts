@@ -309,7 +309,7 @@ export class ConversationController extends Service implements IConversation {
     // reads the service off whatever context the tracker rebound.
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
-    return sessions
+    return sessions as unknown as ISessions
   }
 
   /** Convert browser files to canonical base64 prompt parts. */

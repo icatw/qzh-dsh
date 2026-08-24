@@ -204,7 +204,7 @@ export class InputHub implements SessionInputResolver {
   private sessions(): ISessions {
     const sessions = this.rootCtx.get('sessions')
     if (sessions === undefined) throw new Error('conversation.input: sessions service unavailable')
-    return sessions
+    return sessions as unknown as ISessions
   }
 
   private conversation(): ConversationAttachmentFace {

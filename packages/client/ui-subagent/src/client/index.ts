@@ -12,7 +12,7 @@
  * references never enter command adjudication.
  */
 import type {
-  ClientContext, SessionId, SubagentAddress,
+  ClientContext, ISessions, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ClientSessionContext, InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -58,7 +58,7 @@ function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatc
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-subagent: dictionaries')
-  const sessions = ctx.sessions
+  const sessions = ctx.get('sessions') as unknown as ISessions
   // Child labels live on the session list (parentId lineage + displayTitle),
   // not the conversation snapshot — the list store is the zero-RPC candidate feed.
   const childLabels = (session: ClientSessionContext, query: string): string[] => {
