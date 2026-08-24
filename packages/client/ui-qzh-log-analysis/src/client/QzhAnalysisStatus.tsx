@@ -41,14 +41,17 @@ export function QzhAnalysisStatusHead({ caseView, running, onStart, onGenerateRe
   const analyzing = running || caseView.state === 'analyzing'
   const completed = caseView.state === 'completed' || caseView.state === 'completed_with_limitations'
   const limited = caseView.state === 'completed_with_limitations'
+  // A draft case (created without a submitted summary, e.g. an interrupted
+  // submit or a stale restore) has no evidence; starting analysis is invalid.
+  const draft = caseView.state === 'draft' || caseView.evidence === undefined
   return (
     <section className={css.analysisCard} aria-labelledby="qzh-analysis-status">
       <div className={css.sectionHeading}>
         <div>
-          <h2 id="qzh-analysis-status">{completed ? '报告已生成' : analyzing ? '正在分析当前会话' : '摘要已提交'}</h2>
-          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告已生成；可继续追问、补充日志或重新生成。' : analyzing ? 'Agent 正在读取日志证据并定位；可继续追问、补充日志，或直接生成报告。' : '确认摘要后启动只读分析。'}</p>
+          <h2 id="qzh-analysis-status">{completed ? '报告已生成' : analyzing ? '正在分析当前会话' : draft ? '等待提交日志' : '摘要已提交'}</h2>
+          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告已生成；可继续追问、补充日志或重新生成。' : analyzing ? 'Agent 正在读取日志证据并定位；可继续追问、补充日志，或直接生成报告。' : draft ? '请重新导入日志并确认发送内容，之后才能启动分析。' : '确认摘要后启动只读分析。'}</p>
         </div>
-        <span className={css.statePill} data-state={caseView.state}>{completed ? (limited ? '受限完成' : '已完成') : analyzing ? '分析中' : caseView.state}</span>
+        <span className={css.statePill} data-state={caseView.state}>{completed ? (limited ? '受限完成' : '已完成') : analyzing ? '分析中' : draft ? '未提交' : caseView.state}</span>
       </div>
       <div className={css.caseMeta}>
         {caseView.productVersion !== undefined && <span title={`产品版本 ${caseView.productVersion}`}>版本 {caseView.productVersion}</span>}
@@ -57,7 +60,7 @@ export function QzhAnalysisStatusHead({ caseView, running, onStart, onGenerateRe
       </div>
       <div className={css.statusActions}>
         {analyzing && <button className={css.primaryButton} type="button" onClick={onGenerateReport}>生成报告</button>}
-        {!analyzing && !completed && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
+        {!analyzing && !completed && !draft && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
         {completed && <button className={css.secondaryButton} type="button" onClick={onStart}>继续分析</button>}
       </div>
       {caseView.analysisError !== undefined && <p className={css.errorText}>{caseView.analysisError}</p>}

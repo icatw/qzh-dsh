@@ -212,6 +212,22 @@ describe('QZH blank-session analysis surface', () => {
     expect(screen.queryByRole('button', { name: '生成报告' })).toBeNull()
   })
 
+  it('guides a draft case to resubmit instead of offering a start button', () => {
+    render(<QzhAnalysisStatus
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'draft', createdAt: 1, updatedAt: 1,
+      }}
+      running={false}
+      onStart={vi.fn()}
+      onGenerateReport={vi.fn()}
+      onFeedback={vi.fn()}
+    />)
+    // A draft case (created without a submitted summary) cannot start
+    // analysis; the card asks the user to import and confirm instead.
+    expect(screen.getByText('等待提交日志')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '启动当前会话分析' })).toBeNull()
+  })
+
   it('turns report file mentions into clickable preview openers', () => {
     const onPreviewFile = vi.fn()
     render(<QzhAnalysisStatus

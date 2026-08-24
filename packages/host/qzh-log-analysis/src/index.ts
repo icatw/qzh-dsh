@@ -645,6 +645,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   @Remote('startAnalysis')
   async startAnalysis(sessionId: SessionId, id: QzhCaseId): Promise<QzhAnalysisStartResult> {
     const record = this.requireCase(sessionId, id)
+    if (record.evidence === undefined) throw new Error('QZH 案例尚未提交日志证据摘要，请先导入并确认发送内容')
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
     // Re-entering analysis (from a completed report, or a fresh start) is
     // always allowed: the case is live until the user asks for a report.
@@ -673,6 +674,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
   @Remote('generateReport')
   async generateReport(sessionId: SessionId, id: QzhCaseId): Promise<QzhCaseView> {
     const record = this.requireCase(sessionId, id)
+    if (record.evidence === undefined) throw new Error('QZH 案例尚未提交日志证据摘要，请先导入并确认发送内容')
     if (record.evidence?.consent.approved !== true) throw new Error('QZH analysis requires approved evidence consent')
     if (record.state !== 'analyzing') throw new Error('QZH 案例未在分析中，请先启动分析')
     const existing = this.analysisRuns.get(id)
