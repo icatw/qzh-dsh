@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
@@ -56,18 +56,21 @@ export function QzhEvidenceDock({
     const terminal = caseState === 'completed' || caseState === 'completed_with_limitations' || caseState === 'failed'
     if (terminal) setTab('report')
   }, [caseState])
+  // Restore the session's latest case after a reload exactly once: the store
+  // is in-memory, so a reopened QZH session must re-fetch its case before it
+  // can show evidence or the report. The ref keeps a later local import
+  // (which clears caseView) from re-restoring a stale draft case over it.
+  const restoreAttempted = useRef(false)
   useEffect(() => {
-    if (preset !== 'qzh') return
+    if (preset !== 'qzh' || restoreAttempted.current) return
+    restoreAttempted.current = true
     let disposed = false
-    // Restore the session's latest case after a reload: the store is
-    // in-memory, so a reopened QZH session must re-fetch its case before it
-    // can show evidence or the report.
     void getActiveCase().then((restored) => {
       if (disposed || restored === undefined || state.caseView !== undefined) return
       actions.setCaseView(restored)
     }).catch(() => {})
     return () => { disposed = true }
-  }, [actions, getActiveCase, preset, state.caseView])
+  }, [actions, getActiveCase, preset])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
     let disposed = false
