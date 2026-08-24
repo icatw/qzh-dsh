@@ -3,6 +3,7 @@ import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { buildQzhEvidence } from './evidence.ts'
+import { buildSessionTitle } from './QzhLogAnalysisSection.tsx'
 import { QzhAnalysisStatusHead, QzhAnalysisStatusReport } from './QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
 import { QzhEvidencePreview } from './QzhEvidencePreview.tsx'
@@ -79,7 +80,7 @@ export function QzhEvidenceDock({
   }, [caseId, caseState, getEvidenceTree, preset])
   useEffect(() => {
     if (preset !== 'qzh' || caseId === undefined) return
-    if (sessionSummary?.title === undefined) void renameSession('QZH 日志分析')
+    if (sessionSummary?.title === undefined && state.caseView !== undefined) void renameSession(buildSessionTitle(state.caseView))
     let disposed = false
     const refreshCase = async (): Promise<void> => {
       try {

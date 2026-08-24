@@ -7,7 +7,7 @@ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remotes/client'
 import { inject as qzhInject } from '../src/client/index.ts'
-import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
+import { QzhLogAnalysisSection, buildSessionTitle } from '../src/client/QzhLogAnalysisSection.tsx'
 import { QzhImportHero } from '../src/client/QzhImportHero.tsx'
 import { QzhAnalysisStatus, QzhAnalysisStatusReport } from '../src/client/QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from '../src/client/QzhEvidenceFiles.tsx'
@@ -392,5 +392,19 @@ describe('QzhImportHero', () => {
     expect(screen.getByText(/2\.0 KB/)).toBeTruthy()
     // A file beyond the local preview bound flags the truncation.
     expect(screen.getByText(/大文件，本地预览截断/)).toBeTruthy()
+  })
+})
+
+describe('QZH session title', () => {
+  it('composes a readable title from customer, version, and the first failure line', () => {
+    expect(buildSessionTitle({
+      customerLabel: '客户A', productVersion: 'release/v3.10.3', failureDescription: 'DELETE 请求 500\n更多细节',
+    })).toBe('客户A · release/v3.10.3 · DELETE 请求 500')
+  })
+
+  it('falls back to partial facts and truncates a long failure line', () => {
+    expect(buildSessionTitle({ customerLabel: '', productVersion: '', failureDescription: '终端 agent 认证失败，服务端 SQL 慢查询超时' }))
+      .toBe('终端 agent 认证失败，服务端 …')
+    expect(buildSessionTitle({})).toBe('QZH 日志分析')
   })
 })

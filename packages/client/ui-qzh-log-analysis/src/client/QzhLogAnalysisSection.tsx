@@ -39,6 +39,19 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+/** Compose a readable session title from the submitted case facts, so the
+ *  sidebar distinguishes cases instead of labeling every session the same. */
+export function buildSessionTitle(input: { customerLabel?: string; productVersion?: string; failureDescription?: string }): string {
+  const parts: string[] = []
+  const customer = (input.customerLabel ?? '').trim()
+  if (customer !== '') parts.push(customer)
+  const version = (input.productVersion ?? '').trim()
+  if (version !== '') parts.push(version)
+  const firstLine = (input.failureDescription ?? '').trim().split('\n', 1)[0]?.trim() ?? ''
+  if (firstLine !== '') parts.push(firstLine.length > 18 ? `${firstLine.slice(0, 18)}…` : firstLine)
+  return parts.join(' · ') || 'QZH 日志分析'
+}
+
 function fileEntry(file: File, preview: string, category: QzhLogCategory): ImportedLogEntry | undefined {
   if (!/\.(log|txt|out)$/i.test(file.name)) return undefined
   const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath
@@ -168,7 +181,7 @@ export function QzhLogAnalysisSection({
       let status = '分析已启动，报告会回到当前会话消息流。'
       if (renameSession !== undefined) {
         try {
-          await renameSession('QZH 日志分析')
+          await renameSession(buildSessionTitle(state))
         } catch (error) {
           status = `分析已启动，但会话标题未更新：${error instanceof Error ? error.message : String(error)}`
         }
