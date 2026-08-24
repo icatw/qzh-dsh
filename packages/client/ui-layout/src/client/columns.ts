@@ -38,8 +38,8 @@ export const SIDEBAR_AUTO_COLLAPSE = 1024
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */
 export const DETAILS_MAX = 720
-/** Details width before any user drag. */
-export const DETAILS_DEFAULT = 360
+/** Details width before any user drag; 440 gives long reports and file trees breathing room. */
+export const DETAILS_DEFAULT = 440
 
 /**
  * Clamp a panel width into its contract range.
