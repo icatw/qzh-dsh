@@ -30,8 +30,48 @@ function shortId(id: QzhCaseView['id']): string {
   return `#${String(id).slice(0, 8)}`
 }
 
-/** Show the third-stage analysis state without adding another page. */
-export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport, onFeedback, evidencePaths, onPreviewFile }: Props) {
+/** Always-visible case state card: heading, metadata, and the action buttons. */
+export function QzhAnalysisStatusHead({ caseView, running, onStart, onGenerateReport }: {
+  readonly caseView?: QzhCaseView
+  readonly running: boolean
+  readonly onStart: () => void
+  readonly onGenerateReport: () => void
+}) {
+  if (caseView === undefined) return null
+  const analyzing = running || caseView.state === 'analyzing'
+  const completed = caseView.state === 'completed' || caseView.state === 'completed_with_limitations'
+  const limited = caseView.state === 'completed_with_limitations'
+  return (
+    <section className={css.analysisCard} aria-labelledby="qzh-analysis-status">
+      <div className={css.sectionHeading}>
+        <div>
+          <h2 id="qzh-analysis-status">{completed ? '报告已生成' : analyzing ? '正在分析当前会话' : '摘要已提交'}</h2>
+          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告已生成；可继续追问、补充日志或重新生成。' : analyzing ? 'Agent 正在读取日志证据并定位；可继续追问、补充日志，或直接生成报告。' : '确认摘要后启动只读分析。'}</p>
+        </div>
+        <span className={css.statePill} data-state={caseView.state}>{completed ? (limited ? '受限完成' : '已完成') : analyzing ? '分析中' : caseView.state}</span>
+      </div>
+      <div className={css.caseMeta}>
+        {caseView.productVersion !== undefined && <span title={`产品版本 ${caseView.productVersion}`}>版本 {caseView.productVersion}</span>}
+        {caseView.createdAt !== undefined && <span title={`提交于 ${new Date(caseView.createdAt).toLocaleString('zh-CN')}`}>提交 {formatTimestamp(caseView.createdAt)}</span>}
+        <span title={String(caseView.id)}>{shortId(caseView.id)}</span>
+      </div>
+      <div className={css.statusActions}>
+        {analyzing && <button className={css.primaryButton} type="button" onClick={onGenerateReport}>生成报告</button>}
+        {!analyzing && !completed && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
+        {completed && <button className={css.secondaryButton} type="button" onClick={onStart}>继续分析</button>}
+      </div>
+      {caseView.analysisError !== undefined && <p className={css.errorText}>{caseView.analysisError}</p>}
+    </section>
+  )
+}
+
+/** Report region: copy / download actions, the Markdown report, and feedback. */
+export function QzhAnalysisStatusReport({ caseView, onFeedback, evidencePaths, onPreviewFile }: {
+  readonly caseView?: QzhCaseView
+  readonly onFeedback: (kind: QzhFeedbackKind, comment?: string) => void
+  readonly evidencePaths?: readonly string[]
+  readonly onPreviewFile?: (path: string) => Promise<void>
+}) {
   const [copied, setCopied] = useState(false)
   // Report mentions: inline-code tokens that name a known evidence file
   // (optionally with a `:line` suffix) become clickable openers that preview
@@ -49,9 +89,7 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport
     }
   }, [evidencePaths, onPreviewFile])
   if (caseView === undefined) return null
-  const analyzing = running || caseView.state === 'analyzing'
   const completed = caseView.state === 'completed' || caseView.state === 'completed_with_limitations'
-  const limited = caseView.state === 'completed_with_limitations'
   const copyReport = async (): Promise<void> => {
     if (caseView.report === undefined) return
     await navigator.clipboard.writeText(caseView.report)
@@ -69,25 +107,7 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport
     URL.revokeObjectURL(url)
   }
   return (
-    <section className={css.analysisCard} aria-labelledby="qzh-analysis-status">
-      <div className={css.sectionHeading}>
-        <div>
-          <h2 id="qzh-analysis-status">{completed ? '报告已生成' : analyzing ? '正在分析当前会话' : '摘要已提交'}</h2>
-          <p>{limited ? '报告缺少部分必要结构，已按受限完成保留；结论仍可参考。' : completed ? '报告已回到当前会话；可继续追问或补充证据后重新生成。' : analyzing ? 'Agent 正在读取日志证据并定位；可继续追问、补充日志，或直接生成报告。' : '确认摘要后启动只读分析。'}</p>
-        </div>
-        <span className={css.statePill} data-state={caseView.state}>{completed ? (limited ? '受限完成' : '已完成') : analyzing ? '分析中' : caseView.state}</span>
-      </div>
-      <div className={css.caseMeta}>
-        {caseView.productVersion !== undefined && <span title={`产品版本 ${caseView.productVersion}`}>版本 {caseView.productVersion}</span>}
-        {caseView.createdAt !== undefined && <span title={`提交于 ${new Date(caseView.createdAt).toLocaleString('zh-CN')}`}>提交 {formatTimestamp(caseView.createdAt)}</span>}
-        <span title={String(caseView.id)}>{shortId(caseView.id)}</span>
-      </div>
-      <div className={css.statusActions}>
-        {analyzing && <button className={css.primaryButton} type="button" onClick={onGenerateReport}>生成报告</button>}
-        {!analyzing && !completed && <button className={css.primaryButton} type="button" onClick={onStart}>启动当前会话分析</button>}
-        {completed && <button className={css.secondaryButton} type="button" onClick={onStart}>继续分析</button>}
-      </div>
-      {caseView.analysisError !== undefined && <p className={css.errorText}>{caseView.analysisError}</p>}
+    <section className={css.analysisCard} aria-label="分析报告">
       {caseView.report !== undefined && (
         <div className={css.report}>
           <div className={css.reportActions}>
@@ -99,7 +119,24 @@ export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport
           <MarkdownText text={caseView.report} fileMentions={fileMentions} />
         </div>
       )}
+      {caseView.report === undefined && <p className={css.muted}>尚未生成报告：在分析进行中点击「生成报告」，或先启动分析。</p>}
       {completed && <QzhFeedback feedback={caseView.feedback} onFeedback={onFeedback} />}
     </section>
+  )
+}
+
+/** Complete status card (heading + report), used where no tab split exists. */
+export function QzhAnalysisStatus({ caseView, running, onStart, onGenerateReport, onFeedback, evidencePaths, onPreviewFile }: Props) {
+  if (caseView === undefined) return null
+  return (
+    <>
+      <QzhAnalysisStatusHead caseView={caseView} running={running} onStart={onStart} onGenerateReport={onGenerateReport} />
+      <QzhAnalysisStatusReport
+        caseView={caseView}
+        onFeedback={onFeedback}
+        {...(evidencePaths === undefined ? {} : { evidencePaths })}
+        {...(onPreviewFile === undefined ? {} : { onPreviewFile })}
+      />
+    </>
   )
 }

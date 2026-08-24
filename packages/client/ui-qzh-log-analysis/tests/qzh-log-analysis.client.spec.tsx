@@ -290,10 +290,14 @@ describe('QzhEvidenceFiles', () => {
     expect(screen.getByText('证据文件（2）')).toBeTruthy()
     expect(screen.queryByText('server/logs/app.log')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
-    expect(screen.getByText('server/logs/app.log')).toBeTruthy()
+    // Directory-grouped rows: the folder header shows the path, the row the
+    // basename (full path in the row's title).
+    expect(screen.getByText('server/logs')).toBeTruthy()
+    expect(screen.getByText('app.log')).toBeTruthy()
     expect(screen.getByText(/2\.0 KB · 42 行 · 服务端/)).toBeTruthy()
     expect(screen.getByText('2026-08-21 INFO start')).toBeTruthy()
-    expect(screen.getByText('server/worker/w.out')).toBeTruthy()
+    expect(screen.getByText('server/worker')).toBeTruthy()
+    expect(screen.getByText('w.out')).toBeTruthy()
     expect(screen.queryByText('证据摘要（2）')).toBeNull()
   })
 
@@ -321,7 +325,8 @@ describe('QzhEvidenceFiles', () => {
       onPreviewFile={onPreviewFile}
     />)
     fireEvent.click(screen.getByRole('button', { name: /证据文件（1）/ }))
-    fireEvent.click(screen.getByRole('button', { name: /logs\/app\.log/ }))
+    // Directory groups default to expanded; click the file row (basename).
+    fireEvent.click(screen.getByRole('button', { name: /app\.log/ }))
     // file.path is forwarded verbatim (already carries the category prefix).
     expect(onPreviewFile).toHaveBeenCalledWith('logs/app.log')
   })

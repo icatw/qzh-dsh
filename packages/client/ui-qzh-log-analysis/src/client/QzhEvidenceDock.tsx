@@ -4,7 +4,7 @@ import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhEvidenceSumm
 import { decodeZipLogMember, listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
 import { buildQzhEvidence } from './evidence.ts'
-import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
+import { QzhAnalysisStatusHead, QzhAnalysisStatusReport } from './QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
 import { QzhEvidencePreview } from './QzhEvidencePreview.tsx'
 import type { QzhSessionState, createQzhSessionStore } from './store.ts'
@@ -47,6 +47,13 @@ export function QzhEvidenceDock({
   const [tree, setTree] = useState<QzhLogListResult | undefined>()
   const [preview, setPreview] = useState<FilePreview | undefined>()
   const [previewError, setPreviewError] = useState<string | undefined>()
+  const [tab, setTab] = useState<'evidence' | 'report'>('evidence')
+  // A terminal report lands in the report tab automatically; the user can
+  // switch back to the evidence tree anytime.
+  useEffect(() => {
+    const terminal = caseState === 'completed' || caseState === 'completed_with_limitations' || caseState === 'failed'
+    if (terminal) setTab('report')
+  }, [caseState])
   useEffect(() => {
     if (preset !== 'qzh') return
     let disposed = false
@@ -172,7 +179,7 @@ export function QzhEvidenceDock({
   if (state.entries.length === 0 && state.caseView.report === undefined) {
     return (
       <div className={css.dockExpanded}>
-        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onGenerateReport={() => { void generate() }} onFeedback={submitFeedback} {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })} onPreviewFile={previewFile} />
+        <QzhAnalysisStatusHead caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onGenerateReport={() => { void generate() }} />
         <p className={css.muted}>摘要已提交，完整证据树随分析进度加载。</p>
       </div>
     )
@@ -199,47 +206,62 @@ export function QzhEvidenceDock({
   return state.panelOpen
     ? (
       <div className={css.dockExpanded}>
-        <QzhAnalysisStatus caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onGenerateReport={() => { void generate() }} onFeedback={submitFeedback} {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })} onPreviewFile={previewFile} />
-        {tree !== undefined && (
-          <QzhEvidenceFiles
-            files={tree.files}
-            clusters={tree.clusters}
-            archives={tree.archives ?? []}
-            summaryOnly={tree.summaryOnly === true}
-            caseId={state.caseView.id}
-            onDownloadArchive={downloadArchive}
+        <QzhAnalysisStatusHead caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onGenerateReport={() => { void generate() }} />
+        <div className={css.dockTabs} role="tablist" aria-label="详情视图">
+          <button type="button" role="tab" aria-selected={tab === 'evidence'} className={tab === 'evidence' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('evidence') }}>证据</button>
+          <button type="button" role="tab" aria-selected={tab === 'report'} className={tab === 'report' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('report') }}>报告</button>
+        </div>
+        {tab === 'evidence' ? (
+          <>
+            {tree !== undefined && (
+              <QzhEvidenceFiles
+                files={tree.files}
+                clusters={tree.clusters}
+                archives={tree.archives ?? []}
+                summaryOnly={tree.summaryOnly === true}
+                caseId={state.caseView.id}
+                onDownloadArchive={downloadArchive}
+                onPreviewFile={previewFile}
+              />
+            )}
+            <div className={css.supplement}>
+              {!supplementing ? (
+                <button type="button" className={css.copyButton} onClick={() => { setSupplementing(true); setSupplementError(undefined) }}>
+                  补充日志
+                </button>
+              ) : (
+                <div className={css.supplementPanel}>
+                  <span className={css.supplementHint}>选择补充的服务端 / 终端日志 ZIP，将合并进当前案例。</span>
+                  <div className={css.supplementActions}>
+                    <label className={css.secondaryButton}>补充服务端日志<input type="file" multiple accept=".zip" onChange={(event) => { void supplement('server', event.currentTarget.files) }} /></label>
+                    <label className={css.secondaryButton}>补充终端日志<input type="file" multiple accept=".zip" onChange={(event) => { void supplement('terminal', event.currentTarget.files) }} /></label>
+                    <button type="button" className={css.copyButton} onClick={() => { setSupplementing(false) }}>取消</button>
+                  </div>
+                  {supplementError !== undefined && <p className={css.errorText}>{supplementError}</p>}
+                </div>
+              )}
+            </div>
+            {preview !== undefined && (
+              <section className={css.previewCard} aria-label="证据文件预览">
+                <div className={css.previewHeader}>
+                  <span className={css.previewPath} title={preview.path}>{preview.path}</span>
+                  <span className={css.previewMeta}>{String(preview.totalLines)} 行 · 前 500 行</span>
+                  <button type="button" className={css.previewClose} onClick={() => { setPreview(undefined) }}>关闭</button>
+                </div>
+                <pre className={css.previewBody}>{preview.text}</pre>
+              </section>
+            )}
+            {previewError !== undefined && <p className={css.errorText}>{previewError}</p>}
+            {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
+          </>
+        ) : (
+          <QzhAnalysisStatusReport
+            caseView={state.caseView}
+            onFeedback={submitFeedback}
+            {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })}
             onPreviewFile={previewFile}
           />
         )}
-        <div className={css.supplement}>
-          {!supplementing ? (
-            <button type="button" className={css.copyButton} onClick={() => { setSupplementing(true); setSupplementError(undefined) }}>
-              补充日志
-            </button>
-          ) : (
-            <div className={css.supplementPanel}>
-              <span className={css.supplementHint}>选择补充的服务端 / 终端日志 ZIP，将合并进当前案例。</span>
-              <div className={css.supplementActions}>
-                <label className={css.secondaryButton}>补充服务端日志<input type="file" multiple accept=".zip" onChange={(event) => { void supplement('server', event.currentTarget.files) }} /></label>
-                <label className={css.secondaryButton}>补充终端日志<input type="file" multiple accept=".zip" onChange={(event) => { void supplement('terminal', event.currentTarget.files) }} /></label>
-                <button type="button" className={css.copyButton} onClick={() => { setSupplementing(false) }}>取消</button>
-              </div>
-              {supplementError !== undefined && <p className={css.errorText}>{supplementError}</p>}
-            </div>
-          )}
-        </div>
-        {preview !== undefined && (
-          <section className={css.previewCard} aria-label="证据文件预览">
-            <div className={css.previewHeader}>
-              <span className={css.previewPath} title={preview.path}>{preview.path}</span>
-              <span className={css.previewMeta}>{String(preview.totalLines)} 行 · 前 500 行</span>
-              <button type="button" className={css.previewClose} onClick={() => { setPreview(undefined) }}>关闭</button>
-            </div>
-            <pre className={css.previewBody}>{preview.text}</pre>
-          </section>
-        )}
-        {previewError !== undefined && <p className={css.errorText}>{previewError}</p>}
-        {evidence !== undefined && <QzhEvidencePreview evidence={evidence} />}
       </div>
     )
     : <div className={css.dockCollapsed} role="status"><span>QZH 只读分析 · {state.caseView.state} · {state.entries.length} 个日志文件</span><button type="button" onClick={() => { actions.setPanelOpen(true) }}>查看证据</button></div>
