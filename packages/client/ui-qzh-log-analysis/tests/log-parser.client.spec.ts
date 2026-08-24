@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
 import { clusterLogErrors, parseLogText } from '../src/log-parser.ts'
-import { decodeZipLogMember, listZipLogEntries, logSample } from '../src/log-import.ts'
+import { decodeZipLogMember, isEncryptedZip, listZipLogEntries, logSample } from '../src/log-import.ts'
 import { qzhComponentLabel, scanQzhLogLayout } from '../src/log-layout.ts'
 
 describe('QZH log parser', () => {
@@ -136,5 +136,29 @@ describe('QZH log parser', () => {
     const events = parseLogText(file!, '2026-08-21 10:00:00 request ERROR boom', 'server')
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ severity: 'error' })
+  })
+})
+
+describe('QZH zip encryption detection', () => {
+  it('flags AES (method 99) and encrypted archives, passing plain zips', () => {
+    // AES: compression method 99 in the local file header.
+    const aes = new Uint8Array(34)
+    const view = new DataView(aes.buffer)
+    view.setUint32(0, 0x04034b50, true) // local file header signature
+    view.setUint16(8, 99, true)          // compression method = AES
+    aes.set([1, 2, 3, 4], 30)            // member name
+    expect(isEncryptedZip(aes)).toBe(true)
+
+    // Traditional encryption: flag bit 0 set on a stored member.
+    const classic = new Uint8Array(34)
+    const classicView = new DataView(classic.buffer)
+    classicView.setUint32(0, 0x04034b50, true)
+    classicView.setUint16(6, 0x1, true)  // encryption flag
+    classicView.setUint16(8, 0, true)    // stored
+    classic.set([1, 2, 3, 4], 30)
+    expect(isEncryptedZip(classic)).toBe(true)
+
+    // A plain deflate zip is not encrypted.
+    expect(isEncryptedZip(zipSync({ 'a.log': strToU8('INFO ok') }))).toBe(false)
   })
 })

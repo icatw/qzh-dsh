@@ -78,6 +78,28 @@ function isLikelyLogMember(path: string, bytes: Uint8Array | undefined): boolean
   return !sample.includes('\0') && LOG_SIGNAL.test(sample)
 }
 
+/** Detect a password-protected ZIP (AES or traditional encryption), which the
+ *  in-browser unzip cannot open. Scans the local file headers; the first
+ *  non-header bytes mean the archive is unreadable anyway.
+ * @param bytes - ZIP archive bytes.
+ * @returns true when any member is AES-compressed or carries the encryption flag.
+ */
+export function isEncryptedZip(bytes: Uint8Array): boolean {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let offset = 0
+  while (offset + 30 <= bytes.length) {
+    if (view.getUint32(offset, true) !== 0x04034b50) return false
+    // AES compression (method 99) and the encryption flag (bit 0) both mark
+    // a protected archive that no standard in-browser unzip can open.
+    if (view.getUint16(offset + 8, true) === 99 || (view.getUint16(offset + 6, true) & 0x1) === 1) return true
+    const nameLen = view.getUint16(offset + 26, true)
+    const extraLen = view.getUint16(offset + 28, true)
+    const size = view.getUint32(offset + 18, true)
+    offset += 30 + nameLen + extraLen + size
+  }
+  return false
+}
+
 /** Read one ZIP member as UTF-8, bounded for safe UI preview.
  * @param bytes - ZIP archive bytes.
  * @param path - archive member path.

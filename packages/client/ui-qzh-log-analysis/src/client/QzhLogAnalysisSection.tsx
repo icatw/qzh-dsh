@@ -4,7 +4,7 @@ import type {
   QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
-import { decodeZipLogMember, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
+import { decodeZipLogMember, isEncryptedZip, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
 import { scanQzhLogLayout, type QzhLogCategory } from '../log-layout.ts'
 import { buildQzhEvidence } from './evidence.ts'
@@ -93,6 +93,10 @@ export function QzhLogAnalysisSection({
       for (const file of [...files].slice(0, MAX_FILES)) {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const bytes = new Uint8Array(await file.arrayBuffer())
+          if (isEncryptedZip(bytes)) {
+            actions.setStatus('该 ZIP 已加密（AES 或带密码），无法在浏览器中读取；请先解压后选择日志目录导入，或重新压缩为未加密 ZIP。')
+            return
+          }
           archiveRef.current.set(category, { filename: file.name, category, contentBase64: bytesToBase64(bytes) })
           const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
