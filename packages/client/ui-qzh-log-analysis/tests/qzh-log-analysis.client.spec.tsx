@@ -53,6 +53,7 @@ function props(overrides: Partial<Record<string, unknown>> = {}) {
     actions: instance.actions,
     createCase: vi.fn(async () => caseView),
     setEvidence: vi.fn(async (_id: QzhCaseView['id'], _evidence: QzhEvidenceSummary) => ({ ...caseView, state: 'evidence-ready' as const })),
+    uploadEvidenceArchive: vi.fn(async () => caseView),
     getCase: vi.fn(async () => caseView),
     startAnalysis: vi.fn(async () => ({ ...caseView, state: 'analyzing' as const })),
     setFeedback: vi.fn(async (_id: QzhCaseView['id'], kind: 'like' | 'dislike') => ({ ...caseView, state: 'completed' as const, feedback: kind })),
@@ -276,6 +277,24 @@ describe('QZH full-log archive upload', () => {
     const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
     expect(payload.filename).toBe('logs.zip')
     expect(payload.contentBase64).toBe(Buffer.from(zipBytes).toString('base64'))
+    await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
+  })
+
+  it('packs a directory import into a durable full archive', async () => {
+    const upload = vi.fn(async () => caseView())
+    const { props: input } = props({ uploadEvidenceArchive: upload })
+    const log = new File(['2026-08-21 10:00:00 INFO start\n'], 'terminal/agent.log', { type: 'text/plain' })
+    render(<QzhLogAnalysisSection {...input} />)
+    fireEvent.change(screen.getAllByLabelText('选择日志目录')[1]!, { target: { files: [log] } })
+    await waitFor(() => expect(screen.getByText('确认分析摘要')).toBeTruthy())
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '确认摘要并开始分析' }))
+    await waitFor(() => expect(input.setEvidence).toHaveBeenCalled())
+    await waitFor(() => expect(upload).toHaveBeenCalled())
+    const [, payload] = upload.mock.calls[0] as [unknown, { filename: string; contentBase64: string }]
+    // The extracted directory is re-packed so the Agent gets full-log access.
+    expect(payload.filename).toBe('terminal-logs.zip')
+    expect(payload.contentBase64.length).toBeGreaterThan(0)
     await waitFor(() => expect(input.startAnalysis).toHaveBeenCalled())
   })
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { zipSync } from 'fflate/browser'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind,
@@ -90,6 +91,10 @@ export function QzhLogAnalysisSection({
     try {
       const entries: ImportedLogEntry[] = []
       const events = []
+      // Directory files are re-packed into one zip so a fully extracted log
+      // bundle still lands as the durable full archive (summary-only would
+      // otherwise hide complete logs from qzh_search_logs/qzh_list_logs).
+      const directoryFiles: { path: string; bytes: Uint8Array }[] = []
       for (const file of [...files].slice(0, MAX_FILES)) {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const bytes = new Uint8Array(await file.arrayBuffer())
@@ -103,11 +108,24 @@ export function QzhLogAnalysisSection({
           for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
           continue
         }
-        const preview = await file.slice(0, MAX_PREVIEW_BYTES).text()
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        const preview = new TextDecoder().decode(bytes.subarray(0, MAX_PREVIEW_BYTES))
         const entry = fileEntry(file, preview, category)
         if (entry === undefined) continue
         entries.push(entry)
         events.push(...parseLogText(entry, preview, category))
+        directoryFiles.push({
+          path: normalizeImportPath((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name),
+          bytes,
+        })
+      }
+      // Pack the selected directory into the same durable archive shape as a
+      // ZIP import, so both upload paths give the Agent full-log access.
+      if (directoryFiles.length > 0) {
+        const archiveBytes = zipSync(Object.fromEntries(directoryFiles.map(file => [file.path, file.bytes])))
+        archiveRef.current.set(category, {
+          filename: `${category}-logs.zip`, category, contentBase64: bytesToBase64(archiveBytes),
+        })
       }
       const clusters = clusterLogErrors(events)
       actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)), clusters)
