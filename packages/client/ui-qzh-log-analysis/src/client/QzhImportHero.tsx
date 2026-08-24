@@ -74,6 +74,16 @@ export function QzhImportHero({ entries, onFiles, status }: Props) {
       rest: files.length - MAX_LISTED_FILES,
     }
   }).filter(group => group.files.length > 0)
+  // File groups fold by default so a large bundle does not stretch the page.
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<QzhLogCategory>>(new Set(['server', 'terminal']))
+  const toggleGroup = (category: QzhLogCategory): void => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
   return (
     <section className={css.hero} aria-labelledby="qzh-import-heading">
       <div className={css.heroInner}>
@@ -100,24 +110,32 @@ export function QzhImportHero({ entries, onFiles, status }: Props) {
         </div>
         {importedGroups.length > 0 && (
           <div className={css.importedList} aria-label="已选文件">
-            {importedGroups.map(group => (
-              <div key={group.category} className={css.importedGroup}>
-                <div className={css.importedGroupHead}>
-                  <span>{group.category === 'server' ? '服务端' : '终端'} {group.files.length} 个文件</span>
-                  <span>{formatBytes(group.totalBytes)}</span>
+            {importedGroups.map((group) => {
+              const folded = collapsedGroups.has(group.category)
+              return (
+                <div key={group.category} className={css.importedGroup}>
+                  <button
+                    type="button"
+                    className={css.importedGroupHead}
+                    aria-expanded={!folded}
+                    onClick={() => { toggleGroup(group.category) }}
+                  >
+                    <span>{folded ? '▸' : '▾'} {group.category === 'server' ? '服务端' : '终端'} {group.files.length} 个文件</span>
+                    <span>{formatBytes(group.totalBytes)}{folded ? ' · 展开' : ''}</span>
+                  </button>
+                  {!folded && group.visible.map(entry => (
+                    <div key={entry.path} className={css.importedRow}>
+                      <span className={css.importedPath} title={entry.path}>{entry.path}</span>
+                      <span className={css.importedSize}>
+                        {formatBytes(entry.size)}
+                        {entry.size > MAX_PREVIEW_BYTES ? ' · 大文件，本地预览截断' : ''}
+                      </span>
+                    </div>
+                  ))}
+                  {!folded && group.rest > 0 && <div className={css.importedMore}>等 {group.rest} 个文件…</div>}
                 </div>
-                {group.visible.map(entry => (
-                  <div key={entry.path} className={css.importedRow}>
-                    <span className={css.importedPath} title={entry.path}>{entry.path}</span>
-                    <span className={css.importedSize}>
-                      {formatBytes(entry.size)}
-                      {entry.size > MAX_PREVIEW_BYTES ? ' · 大文件，本地预览截断' : ''}
-                    </span>
-                  </div>
-                ))}
-                {group.rest > 0 && <div className={css.importedMore}>等 {group.rest} 个文件…</div>}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
         <div className={css.heroMeta} aria-live="polite">

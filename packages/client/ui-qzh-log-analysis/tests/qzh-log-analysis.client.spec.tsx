@@ -400,9 +400,11 @@ describe('QzhImportHero', () => {
       onFiles={vi.fn()}
       status=""
     />)
-    // Per-side file counts and the file rows with human-readable sizes.
-    expect(screen.getByText('服务端 2 个文件')).toBeTruthy()
-    expect(screen.getByText('终端 1 个文件')).toBeTruthy()
+    // Groups fold by default (only the count line), then expand on click.
+    expect(screen.getByText(/服务端 2 个文件/)).toBeTruthy()
+    expect(screen.getByText(/终端 1 个文件/)).toBeTruthy()
+    expect(screen.queryByText('server/logs/a.log')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /服务端 2 个文件/ }))
     expect(screen.getByText('server/logs/a.log')).toBeTruthy()
     expect(screen.getByText('server/logs/big.out')).toBeTruthy()
     expect(screen.getByText(/2\.0 KB/)).toBeTruthy()
