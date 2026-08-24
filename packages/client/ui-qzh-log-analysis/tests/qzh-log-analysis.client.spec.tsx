@@ -11,6 +11,7 @@ import { QzhLogAnalysisSection, buildSessionTitle } from '../src/client/QzhLogAn
 import { QzhImportHero } from '../src/client/QzhImportHero.tsx'
 import { QzhAnalysisStatus, QzhAnalysisStatusReport } from '../src/client/QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from '../src/client/QzhEvidenceFiles.tsx'
+import { QzhEvidencePreview } from '../src/client/QzhEvidencePreview.tsx'
 import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
 import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
 
@@ -357,9 +358,11 @@ describe('QzhEvidenceFiles', () => {
       summaryOnly={false}
       {...baseProps}
     />)
-    // Collapsed by default: the toggle names the count, the rows are hidden.
+    // The explorer is open by default so the evidence hierarchy is immediately discoverable.
     expect(screen.getByText('证据文件（2）')).toBeTruthy()
-    expect(screen.queryByText('server/logs/app.log')).toBeNull()
+    expect(screen.getByText('app.log')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
+    expect(screen.queryByText('app.log')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
     // Nested directory tree: `server` expands to `logs`, then the basename.
     expect(screen.getByText('server')).toBeTruthy()
@@ -397,14 +400,13 @@ describe('QzhEvidenceFiles', () => {
       onDownloadArchive={vi.fn()}
       onPreviewFile={vi.fn()}
     />)
-    fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
     // Search narrows the tree to matching files (ancestors forced open).
     fireEvent.change(screen.getByLabelText('搜索证据文件'), { target: { value: 'app' } })
     expect(screen.getByText('app.log')).toBeTruthy()
     expect(screen.queryByText('w.out')).toBeNull()
-    // Clearing the search restores the full tree; collapse-all folds folders.
+    // Clearing the search restores the full tree; the compact action folds folders.
     fireEvent.change(screen.getByLabelText('搜索证据文件'), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: '全部收起' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
     expect(screen.queryByText('app.log')).toBeNull()
     expect(screen.queryByText('w.out')).toBeNull()
   })
@@ -420,11 +422,26 @@ describe('QzhEvidenceFiles', () => {
       onDownloadArchive={vi.fn()}
       onPreviewFile={onPreviewFile}
     />)
-    fireEvent.click(screen.getByRole('button', { name: /证据文件（1）/ }))
     // Directory groups default to expanded; click the file row (basename).
     fireEvent.click(screen.getByRole('button', { name: /app\.log/ }))
     // file.path is forwarded verbatim (already carries the category prefix).
     expect(onPreviewFile).toHaveBeenCalledWith('logs/app.log')
+  })
+})
+
+describe('QzhEvidencePreview', () => {
+  it('distinguishes submitted evidence from the pre-send confirmation state', () => {
+    render(<QzhEvidencePreview
+      submitted
+      evidence={{
+        consent: { approved: true, destination: 'internal-qzh-analysis' },
+        files: [{ path: 'server/logs/app.log', category: 'server', component: 'web-agent', stream: 'log', size: 5, sample: 'INFO start' }],
+        excerpt: 'INFO start',
+      }}
+    />)
+    expect(screen.getByRole('heading', { name: '已发送内容' })).toBeTruthy()
+    expect(screen.getByText('已提交')).toBeTruthy()
+    expect(screen.queryByText('待发送')).toBeNull()
   })
 })
 

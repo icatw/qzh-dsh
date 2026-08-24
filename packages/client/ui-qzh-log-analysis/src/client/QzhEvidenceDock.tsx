@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult } from '@deepseek-ai/dsh-api-remotes/client'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { buildQzhEvidence } from './evidence.ts'
 import { buildSessionTitle } from './QzhLogAnalysisSection.tsx'
@@ -49,7 +50,8 @@ export function QzhEvidenceDock({
   const [tree, setTree] = useState<QzhLogListResult | undefined>()
   const [preview, setPreview] = useState<FilePreview | undefined>()
   const [previewError, setPreviewError] = useState<string | undefined>()
-  const [tab, setTab] = useState<'evidence' | 'report'>('evidence')
+  const [previewCopied, setPreviewCopied] = useState(false)
+  const [tab, setTab] = useState<'report' | 'evidence' | 'timeline'>('evidence')
   // A terminal report lands in the report tab automatically; the user can
   // switch back to the evidence tree anytime.
   useEffect(() => {
@@ -142,6 +144,7 @@ export function QzhEvidenceDock({
   const previewFile = async (path: string): Promise<void> => {
     if (state.caseView === undefined) return
     setPreviewError(undefined)
+    setPreviewCopied(false)
     try {
       const result = await readEvidenceRange(state.caseView.id, path)
       setPreview({ path, text: result.text, totalLines: result.totalLines })
@@ -149,6 +152,12 @@ export function QzhEvidenceDock({
       setPreview(undefined)
       setPreviewError(`读取 ${path} 失败：${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+  const copyPreview = async (): Promise<void> => {
+    if (preview === undefined) return
+    const copied = await writeClipboard(preview.text)
+    setPreviewCopied(copied)
+    if (copied) window.setTimeout(() => { setPreviewCopied(false) }, 1_500)
   }
   const [supplementing, setSupplementing] = useState(false)
   const [supplementError, setSupplementError] = useState<string | undefined>()
@@ -188,7 +197,6 @@ export function QzhEvidenceDock({
       setSupplementError(`补充日志失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  const [evidenceView, setEvidenceView] = useState<'files' | 'timeline'>('files')
   const [timeline, setTimeline] = useState<QzhTimelineResult | undefined>()
   const [timelineError, setTimelineError] = useState<string | undefined>()
   const loadTimeline = async (): Promise<void> => {
@@ -240,53 +248,55 @@ export function QzhEvidenceDock({
       <div className={css.dockExpanded}>
         <QzhAnalysisStatusHead caseView={state.caseView} running={state.caseView.state === 'analyzing'} onStart={() => { void retry() }} onGenerateReport={() => { void generate() }} />
         <div className={css.dockTabs} role="tablist" aria-label="详情视图">
-          <button type="button" role="tab" aria-selected={tab === 'evidence'} className={tab === 'evidence' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('evidence') }}>证据</button>
           <button type="button" role="tab" aria-selected={tab === 'report'} className={tab === 'report' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('report') }}>报告</button>
+          <button type="button" role="tab" aria-selected={tab === 'evidence'} className={tab === 'evidence' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('evidence') }}>
+            证据{tree !== undefined && <span className={css.dockTabCount}>{tree.files.length}</span>}
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'timeline'} className={tab === 'timeline' ? css.dockTabActive : css.dockTab} onClick={() => { setTab('timeline'); void loadTimeline() }}>时间线</button>
         </div>
-        {tab === 'evidence' ? (
-          <>
-            <div className={css.evidenceViewTabs}>
-              <button type="button" className={evidenceView === 'files' ? css.evidenceViewTabActive : css.evidenceViewTab} onClick={() => { setEvidenceView('files') }}>文件</button>
-              <button type="button" className={evidenceView === 'timeline' ? css.evidenceViewTabActive : css.evidenceViewTab} onClick={() => { setEvidenceView('timeline'); void loadTimeline() }}>时间线</button>
+        {tab === 'timeline' ? (
+          <section className={css.timelineSection} aria-label="跨侧时间线">
+            <div className={css.timelineHeading}>
+              <div>
+                <h2>时间线</h2>
+                <p>按时间查看来自不同日志文件的关键事件。</p>
+              </div>
+              {timeline !== undefined && <span>{timeline.events.length}{timeline.truncated ? '+' : ''} 条</span>}
             </div>
-            {evidenceView === 'timeline' ? (
-              <section className={css.timelineSection} aria-label="跨侧时间线">
-                {timelineError !== undefined && <p className={css.errorText}>{timelineError}</p>}
-                {timeline !== undefined && timeline.events.length === 0 && <p className={css.muted}>证据中没有带时间戳的日志行。</p>}
-                {timeline !== undefined && timeline.events.length > 0 && (
-                  <div className={css.timelineList}>
-                    {timeline.events.map((event, index) => (
-                      <button
-                        type="button"
-                        key={`${event.timestamp}-${index}`}
-                        className={css.timelineRow}
-                        data-severity={event.severity}
-                        title={`点击查看 ${event.path}:${String(event.line)}`}
-                        onClick={() => { void previewFile(event.path) }}
-                      >
-                        <span className={css.timelineTime}>{formatClock(event.timestamp)}</span>
-                        <span className={css.timelinePath}>{event.path.slice(event.path.lastIndexOf('/') + 1)}</span>
-                        <span className={css.timelineText}>{event.text}</span>
-                      </button>
-                    ))}
-                    {timeline.truncated && <p className={css.muted}>时间线已截断（仅显示前 200 条）。</p>}
-                  </div>
-                )}
-              </section>
-            ) : (
-              <>
-                {tree !== undefined && (
-                  <QzhEvidenceFiles
-                    files={tree.files}
-                    clusters={tree.clusters}
-                    archives={tree.archives ?? []}
-                    summaryOnly={tree.summaryOnly === true}
-                    caseId={state.caseView.id}
-                    onDownloadArchive={downloadArchive}
-                    onPreviewFile={previewFile}
-                  />
-                )}
-              </>
+            {timelineError !== undefined && <p className={css.errorText}>{timelineError}</p>}
+            {timeline !== undefined && timeline.events.length === 0 && <p className={css.muted}>证据中没有带时间戳的日志行。</p>}
+            {timeline !== undefined && timeline.events.length > 0 && (
+              <div className={css.timelineList}>
+                {timeline.events.map((event, index) => (
+                  <button
+                    type="button"
+                    key={`${event.timestamp}-${index}`}
+                    className={css.timelineRow}
+                    data-severity={event.severity}
+                    title={`点击查看 ${event.path}:${String(event.line)}`}
+                    onClick={() => { void previewFile(event.path) }}
+                  >
+                    <span className={css.timelineTime}>{formatClock(event.timestamp)}</span>
+                    <span className={css.timelinePath}>{event.path.slice(event.path.lastIndexOf('/') + 1)}</span>
+                    <span className={css.timelineText}>{event.text}</span>
+                  </button>
+                ))}
+                {timeline.truncated && <p className={css.muted}>时间线已截断（仅显示前 200 条）。</p>}
+              </div>
+            )}
+          </section>
+        ) : tab === 'evidence' ? (
+          <>
+            {tree !== undefined && (
+              <QzhEvidenceFiles
+                files={tree.files}
+                clusters={tree.clusters}
+                archives={tree.archives ?? []}
+                summaryOnly={tree.summaryOnly === true}
+                caseId={state.caseView.id}
+                onDownloadArchive={downloadArchive}
+                onPreviewFile={previewFile}
+              />
             )}
             <div className={css.supplement}>
               {!supplementing ? (
@@ -310,18 +320,19 @@ export function QzhEvidenceDock({
                 <div className={css.previewHeader}>
                   <span className={css.previewPath} title={preview.path}>{preview.path}</span>
                   <span className={css.previewMeta}>{String(preview.totalLines)} 行 · 前 500 行</span>
+                  <button type="button" className={css.previewAction} onClick={() => { void copyPreview() }}>{previewCopied ? '已复制' : '复制'}</button>
                   <button type="button" className={css.previewClose} onClick={() => { setPreview(undefined) }}>关闭</button>
                 </div>
                 <pre className={css.previewBody}>{preview.text}</pre>
               </section>
             )}
             {previewError !== undefined && <p className={css.errorText}>{previewError}</p>}
-            {evidence !== undefined && <QzhEvidencePreview evidence={evidence} uploads={state.uploads} />}
+            {evidence !== undefined && <QzhEvidencePreview evidence={evidence} uploads={state.uploads} submitted />}
           </>
         ) : (
           <QzhAnalysisStatusReport
             caseView={state.caseView}
-            onFeedback={submitFeedback}
+            onFeedback={(kind, comment) => { void submitFeedback(kind, comment) }}
             {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })}
             onPreviewFile={previewFile}
             onReadCode={readCode}

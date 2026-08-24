@@ -8,6 +8,8 @@ QZH 日志分析 Web preset 的浏览器入口。Blank QZH sessions use a dedica
 
 The right-side panel keeps polling the Host case until the report completes or fails. The submitted session remains in its original workspace and is named `QZH 日志分析` when it has no user-defined title. Import is split into two separate zones — server logs and terminal logs — and every file carries a `category` (`server`/`terminal`) that the error clusters preserve, so the report keeps both field sides apart. Imported files map to components through the data-driven `QZH_COMPONENT_RULES` service-name table (longest fragment wins; adding a service is one row). Files that match no rule keep a label inferred from their parent directory or file stem, so generic archive layouts do not collapse into `unknown` and no fixed `/data/logs` prefix is assumed. Stream classification prefers the file name (`*-error.log` and peers) and falls back to the leading content sample when the name carries no signal. A bounded first-line sample per file is submitted with the evidence summary so the Host Agent can judge the real field layout, and is shown in the outbound preview. Once the report completes, the panel offers a helpful / not-helpful verdict with an optional note, written back through `setFeedback`.
 
+The details panel uses top-level Report, Evidence, and Timeline tabs. Evidence opens as a searchable directory explorer with archive download actions; selecting a file opens a bounded log preview with copy support, while submitted evidence is labeled separately from the pre-send confirmation state.
+
 ## Model Experience
 
 None, as this package owns a browser presentation surface and local evidence preview; it does not register a model-facing tool or prompt section.

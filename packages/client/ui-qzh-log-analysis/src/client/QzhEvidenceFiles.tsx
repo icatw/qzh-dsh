@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
 import type { QzhArchiveInfo, QzhEvidenceCluster, QzhEvidenceTreeFile, QzhCaseView, QzhLogCategory } from '@deepseek-ai/dsh-api-remotes/client'
+import {
+  IconArchiveOutline20, IconChevronDownOutline14, IconChevronRightOutline14, IconCodeOutline16,
+  IconFolderClose16, IconFolderOpen16, IconSearchOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './QzhLogAnalysisSection.module.css'
 
 interface Props {
@@ -79,7 +83,7 @@ function collectDirs(node: EvidenceDirNode, into: string[]): void {
 
 /** Collapsible evidence-file listing for the QZH details dock. */
 export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDownloadArchive, onPreviewFile }: Props) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const [downloadingCategory, setDownloadingCategory] = useState<QzhLogCategory | undefined>()
   const [downloadError, setDownloadError] = useState<string | undefined>()
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -124,36 +128,56 @@ export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDow
     }
   }
   return (
-    <section className={css.evidenceSection} aria-label="证据文件">
-      {archives.map(archive => (
-        <div key={archive.category} className={css.evidenceRow} data-evidence-kind="archive">
-          <div className={css.evidenceMain}>
-            <span title={archive.filename}>📦 {archive.filename}</span>
-            <span>{formatBytes(archive.size)} · {categoryLabel(archive.category)}完整日志包</span>
-          </div>
-          <button type="button" className={css.archiveDownload} disabled={downloadingCategory !== undefined} onClick={() => { void download(archive.category) }}>
-            {downloadingCategory === archive.category ? '下载中…' : '下载'}
-          </button>
-        </div>
-      ))}
-      {downloadError !== undefined && <p className={css.errorText}>{downloadError}</p>}
-      <button type="button" className={css.evidenceToggle} onClick={() => { setOpen(current => !current) }}>
-        <span>{label}（{files.length}）{clusters.length > 0 ? ` · ${String(clusters.length)} 类异常` : ''}</span>
-        <span className={css.evidenceToggleAction}>{open ? '收起' : '展开'}</span>
-      </button>
+    <section className={css.evidenceExplorer} aria-label="证据文件">
+      <div className={css.evidenceExplorerHeader}>
+        <button
+          type="button"
+          className={css.evidenceExplorerToggle}
+          onClick={() => { setOpen(current => !current) }}
+          aria-expanded={open}
+        >
+          <span className={css.evidenceExplorerChevron} aria-hidden="true">
+            {open ? <IconChevronDownOutline14 size={14} /> : <IconChevronRightOutline14 size={14} />}
+          </span>
+          <span className={css.evidenceExplorerIcon} aria-hidden="true">
+            {open ? <IconFolderOpen16 size={16} /> : <IconFolderClose16 size={16} />}
+          </span>
+          <span className={css.evidenceExplorerName}>{label}（{files.length}）</span>
+          {clusters.length > 0 && <span className={css.evidenceExplorerMeta}>{clusters.length} 类异常</span>}
+        </button>
+        <span className={css.evidenceExplorerHint}>点击文件查看日志内容</span>
+      </div>
       {open && (
         <>
+          {archives.length > 0 && (
+            <div className={css.evidenceArchiveList} aria-label="完整日志包">
+              {archives.map(archive => (
+                <div key={archive.category} className={css.evidenceArchiveRow}>
+                  <span className={css.evidenceArchiveIcon} aria-hidden="true"><IconArchiveOutline20 size={18} /></span>
+                  <div className={css.evidenceMain}>
+                    <span className={css.evidenceArchiveName} title={archive.filename}>{archive.filename}</span>
+                    <span>{formatBytes(archive.size)} · {categoryLabel(archive.category)}完整日志包</span>
+                  </div>
+                  <button type="button" className={css.archiveDownload} disabled={downloadingCategory !== undefined} onClick={() => { void download(archive.category) }}>
+                    {downloadingCategory === archive.category ? '下载中…' : '下载'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {downloadError !== undefined && <p className={css.errorText}>{downloadError}</p>}
           <div className={css.evidenceSearchRow}>
+            <span className={css.evidenceSearchIcon} aria-hidden="true"><IconSearchOutline16 size={14} /></span>
             <input
               className={css.evidenceSearch}
               type="search"
-              placeholder="搜索文件…"
+              placeholder="搜索证据文件…"
               value={query}
               aria-label="搜索证据文件"
               onChange={(event) => { setQuery(event.currentTarget.value) }}
             />
-            <button type="button" className={css.copyButton} onClick={expandAll}>全部展开</button>
-            <button type="button" className={css.copyButton} onClick={collapseAll}>全部收起</button>
+            <button type="button" className={css.treeAction} onClick={expandAll}>展开</button>
+            <button type="button" className={css.treeAction} onClick={collapseAll}>收起</button>
           </div>
           <div className={css.evidenceRows}>
             {effectiveTree === null && <p className={css.muted}>没有匹配「{query.trim()}」的文件。</p>}
@@ -199,7 +223,12 @@ function EvidenceDirBranch({ node, depth, collapsed, toggleDir, onPreviewFile, f
             aria-expanded={!collapsed.has(dir.path)}
             onClick={() => { toggleDir(dir.path) }}
           >
-            <span className={css.evidenceDirIcon}>{collapsed.has(dir.path) ? '▸' : '▾'}</span>
+            <span className={css.evidenceDirChevron} aria-hidden="true">
+              {collapsed.has(dir.path) ? <IconChevronRightOutline14 size={12} /> : <IconChevronDownOutline14 size={12} />}
+            </span>
+            <span className={css.evidenceDirIcon} aria-hidden="true">
+              {collapsed.has(dir.path) ? <IconFolderClose16 size={15} /> : <IconFolderOpen16 size={15} />}
+            </span>
             <span className={css.evidenceDirName} title={dir.path}>{dir.name}</span>
             <span className={css.evidenceDirCount}>{dir.files.length + dir.dirs.size}</span>
           </button>
@@ -225,6 +254,7 @@ function EvidenceDirBranch({ node, depth, collapsed, toggleDir, onPreviewFile, f
           title={`点击查看 ${file.path}`}
           onClick={() => { void onPreviewFile(file.path) }}
         >
+          <span className={css.evidenceFileIcon} aria-hidden="true"><IconCodeOutline16 size={14} /></span>
           <div className={css.evidenceMain}>
             <span className={css.evidencePath}>{file.path.slice(file.path.lastIndexOf('/') + 1)}</span>
             <span>{formatBytes(file.size)}{file.lineCount !== undefined ? ` · ${String(file.lineCount)} 行` : ''} · {categoryLabel(file.category)}{file.stream !== 'log' ? ` · ${file.stream}` : ''}</span>

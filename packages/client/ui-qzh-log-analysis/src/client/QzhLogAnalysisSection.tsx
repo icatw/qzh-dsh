@@ -268,9 +268,15 @@ export function QzhLogAnalysisSection({
             onFailureDescription={actions.setFailureDescription}
             onConsent={actions.setConsent}
           />
-          <button className={css.primaryButton} type="button" disabled={!state.consent || analysisRunning} onClick={() => { void submitAndStart() }}>
-            {analysisRunning ? '提交并启动中…' : '确认摘要并开始分析'}
-          </button>
+          <div className={css.submitBar}>
+            <div className={css.submitSummary}>
+              <strong>已识别 {evidence.files.length} 个日志文件</strong>
+              <span>确认后发送到公司内网 QZH 分析 Host</span>
+            </div>
+            <button className={css.primaryButton} type="button" disabled={!state.consent || analysisRunning} onClick={() => { void submitAndStart() }}>
+              {analysisRunning ? '提交并启动中…' : '确认摘要并开始分析'}
+            </button>
+          </div>
         </div>
       )}
       {state.caseView !== undefined && (
