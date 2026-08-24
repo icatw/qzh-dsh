@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { decodeZipLogMember, listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
 import { buildQzhEvidence } from './evidence.ts'
@@ -19,6 +19,7 @@ interface Injected {
   readonly getActiveCase: () => Promise<QzhCaseView | undefined>
   readonly getEvidenceTree: (id: QzhCaseView['id']) => Promise<QzhLogListResult>
   readonly readEvidenceRange: (id: QzhCaseView['id'], path: string) => Promise<QzhLogReadResult>
+  readonly readCode: (id: QzhCaseView['id'], path: string, startLine: number, endLine: number) => Promise<QzhCodeReadResult>
   readonly downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory) => Promise<QzhArchiveDownload | undefined>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
@@ -37,7 +38,7 @@ interface FilePreview {
 export function QzhEvidenceDock({
   sessionId, useSessions, useStore, actions, startAnalysis, generateReport, setEvidence, uploadEvidenceArchive,
   getCase, getActiveCase, getEvidenceTree,
-  readEvidenceRange, downloadEvidenceArchive, setFeedback, renameSession,
+  readEvidenceRange, readCode, downloadEvidenceArchive, setFeedback, renameSession,
 }: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
@@ -260,6 +261,7 @@ export function QzhEvidenceDock({
             onFeedback={submitFeedback}
             {...(tree === undefined ? {} : { evidencePaths: tree.files.map(file => file.path) })}
             onPreviewFile={previewFile}
+            onReadCode={readCode}
           />
         )}
       </div>

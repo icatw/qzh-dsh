@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary,
-  QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult,
+  QzhCodeReadResult, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhComposer } from './QzhComposer.tsx'
 import { QzhEvidenceDock } from './QzhEvidenceDock.tsx'
@@ -50,6 +50,8 @@ export function apply(ctx: ClientContext): void {
     getEvidenceTree: (id: QzhCaseView['id']): Promise<QzhLogListResult> => remoteValue(ctx.remote.qzhLogAnalysis.getEvidenceTree(sessionId, id)),
     readEvidenceRange: (id: QzhCaseView['id'], path: string): Promise<QzhLogReadResult> =>
       remoteValue(ctx.remote.qzhLogAnalysis.readEvidenceRange(sessionId, id, path, undefined, undefined)),
+    readCode: (id: QzhCaseView['id'], path: string, startLine: number, endLine: number): Promise<QzhCodeReadResult> =>
+      remoteValue(ctx.remote.qzhLogAnalysis.readCode(sessionId, id, 'server', path, startLine, endLine)),
     downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory): Promise<QzhArchiveDownload | undefined> => remoteValue(ctx.remote.qzhLogAnalysis.downloadEvidenceArchive(sessionId, id, category)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
     generateReport: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.generateReport(sessionId, id)),
@@ -97,6 +99,7 @@ export function apply(ctx: ClientContext): void {
       getActiveCase: actions(sessionId).getActiveCase,
       getEvidenceTree: actions(sessionId).getEvidenceTree,
       readEvidenceRange: actions(sessionId).readEvidenceRange,
+      readCode: actions(sessionId).readCode,
       downloadEvidenceArchive: actions(sessionId).downloadEvidenceArchive,
       setFeedback: actions(sessionId).setFeedback,
       renameSession: actions(sessionId).renameSession,

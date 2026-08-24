@@ -66,28 +66,51 @@ export function QzhAnalysisStatusHead({ caseView, running, onStart, onGenerateRe
 }
 
 /** Report region: copy / download actions, the Markdown report, and feedback. */
-export function QzhAnalysisStatusReport({ caseView, onFeedback, evidencePaths, onPreviewFile }: {
+export function QzhAnalysisStatusReport({ caseView, onFeedback, evidencePaths, onPreviewFile, onReadCode }: {
   readonly caseView?: QzhCaseView
   readonly onFeedback: (kind: QzhFeedbackKind, comment?: string) => void
   readonly evidencePaths?: readonly string[]
   readonly onPreviewFile?: (path: string) => Promise<void>
+  /** Reads a source excerpt at a path/line; enables code mentions in the report. */
+  readonly onReadCode?: (id: QzhCaseView['id'], path: string, startLine: number, endLine: number) => Promise<import('@deepseek-ai/dsh-api-remotes/client').QzhCodeReadResult>
 }) {
   const [copied, setCopied] = useState(false)
+  const [codePreview, setCodePreview] = useState<import('@deepseek-ai/dsh-api-remotes/client').QzhCodeReadResult | undefined>()
+  const [codeError, setCodeError] = useState<string | undefined>()
+  const readCodeAt = async (id: QzhCaseView['id'], path: string, line: number): Promise<void> => {
+    if (onReadCode === undefined) return
+    setCodeError(undefined)
+    try {
+      const result = await onReadCode(id, path, line, line + 9)
+      setCodePreview(result)
+    } catch (error) {
+      setCodePreview(undefined)
+      setCodeError(`读取代码 ${path} 失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   // Report mentions: inline-code tokens that name a known evidence file
   // (optionally with a `:line` suffix) become clickable openers that preview
-  // the file; everything else stays inert code.
+  // the file; a source-file token (path + line) reads code through the mirror
+  // when a reader is available; everything else stays inert code.
   const fileMentions = useMemo<MarkdownFileMentions | undefined>(() => {
     if (evidencePaths === undefined || onPreviewFile === undefined) return undefined
     const known = new Set(evidencePaths)
     return {
       resolve(value) {
-        const match = /^(.*?):\d+$/.exec(value)
-        const path = match === null ? value : match[1] ?? value
-        if (!known.has(path)) return undefined
-        return { open: () => { void onPreviewFile(path) }, label: value, title: path }
+        const lineMatch = /^(.*?):(\d+)$/.exec(value)
+        const bare = lineMatch === null ? value : lineMatch[1] ?? value
+        if (known.has(bare)) return { open: () => { void onPreviewFile(bare) }, label: value, title: bare }
+        if (lineMatch !== null && onReadCode !== undefined && caseView !== undefined) {
+          const codePath = lineMatch[1] as string
+          const line = Number(lineMatch[2] as string)
+          if (/\.(?:go|ts|tsx|js|jsx|java|py|c|cpp|h|rs|sh|sql|yaml|yml|json|proto)$/i.test(codePath)) {
+            return { open: () => { void readCodeAt(caseView.id, codePath, line) }, label: value, title: codePath }
+          }
+        }
+        return undefined
       },
     }
-  }, [evidencePaths, onPreviewFile])
+  }, [evidencePaths, onPreviewFile, onReadCode, caseView])
   if (caseView === undefined) return null
   const completed = caseView.state === 'completed' || caseView.state === 'completed_with_limitations'
   const copyReport = async (): Promise<void> => {
@@ -120,6 +143,19 @@ export function QzhAnalysisStatusReport({ caseView, onFeedback, evidencePaths, o
         </div>
       )}
       {caseView.report === undefined && <p className={css.muted}>尚未生成报告：在分析进行中点击「生成报告」，或先启动分析。</p>}
+      {codePreview !== undefined && (
+        <section className={css.previewCard} aria-label="代码预览">
+          <div className={css.previewHeader}>
+            <span className={css.previewPath} title={`${codePreview.repository}@${codePreview.commit} ${codePreview.path}`}>
+              {codePreview.repository}@{codePreview.commit.slice(0, 7)} {codePreview.path}:{codePreview.startLine}
+            </span>
+            <span className={css.previewMeta}>{codePreview.endLine - codePreview.startLine + 1} 行</span>
+            <button type="button" className={css.previewClose} onClick={() => { setCodePreview(undefined) }}>关闭</button>
+          </div>
+          <pre className={css.previewBody}>{codePreview.text}</pre>
+        </section>
+      )}
+      {codeError !== undefined && <p className={css.errorText}>{codeError}</p>}
       {completed && <QzhFeedback feedback={caseView.feedback} onFeedback={onFeedback} />}
     </section>
   )

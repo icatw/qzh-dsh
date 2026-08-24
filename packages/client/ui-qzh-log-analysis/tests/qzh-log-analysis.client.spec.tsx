@@ -9,7 +9,7 @@ import type { QzhCaseView, QzhEvidenceSummary } from '@deepseek-ai/dsh-api-remot
 import { inject as qzhInject } from '../src/client/index.ts'
 import { QzhLogAnalysisSection } from '../src/client/QzhLogAnalysisSection.tsx'
 import { QzhImportHero } from '../src/client/QzhImportHero.tsx'
-import { QzhAnalysisStatus } from '../src/client/QzhAnalysisStatus.tsx'
+import { QzhAnalysisStatus, QzhAnalysisStatusReport } from '../src/client/QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from '../src/client/QzhEvidenceFiles.tsx'
 import { QzhSessionHeaderAction } from '../src/client/QzhSessionHeaderAction.tsx'
 import { createQzhSessionStore, type QzhSessionState } from '../src/client/store.ts'
@@ -233,6 +233,27 @@ describe('QZH blank-session analysis surface', () => {
     fireEvent.click(screen.getByTitle('terminal/agent.log'))
     expect(onPreviewFile).toHaveBeenLastCalledWith('terminal/agent.log')
   })
+
+  it('reads source code from a report code mention', async () => {
+    const onReadCode = vi.fn(async () => ({
+      repository: 'server' as const, commit: 'abc1234', path: 'packages/auth/service.go', startLine: 10, endLine: 19, text: 'func main() {}\n',
+    }))
+    render(<QzhAnalysisStatusReport
+      caseView={{
+        id: 'case' as QzhCaseView['id'], sessionId: SESSION_ID, state: 'completed', createdAt: 1, updatedAt: 1,
+        report: '根因在 `packages/auth/service.go:10`。',
+      }}
+      onFeedback={vi.fn()}
+      evidencePaths={['server/logs/a.log']}
+      onPreviewFile={vi.fn()}
+      onReadCode={onReadCode}
+    />)
+    // A source-file token (path + line) resolves to a code preview opener.
+    fireEvent.click(screen.getByTitle('packages/auth/service.go'))
+    expect(onReadCode).toHaveBeenCalledWith('case', 'packages/auth/service.go', 10, 19)
+    // The preview card renders the read excerpt with repository + short commit.
+    await waitFor(() => expect(screen.getByText(/server@abc1234 packages\/auth\/service\.go:10/)).toBeTruthy())
+  })
 })
 
 describe('QZH full-log archive upload', () => {
@@ -290,13 +311,13 @@ describe('QzhEvidenceFiles', () => {
     expect(screen.getByText('证据文件（2）')).toBeTruthy()
     expect(screen.queryByText('server/logs/app.log')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /证据文件（2）/ }))
-    // Directory-grouped rows: the folder header shows the path, the row the
-    // basename (full path in the row's title).
-    expect(screen.getByText('server/logs')).toBeTruthy()
+    // Nested directory tree: `server` expands to `logs`, then the basename.
+    expect(screen.getByText('server')).toBeTruthy()
+    expect(screen.getByText('logs')).toBeTruthy()
     expect(screen.getByText('app.log')).toBeTruthy()
     expect(screen.getByText(/2\.0 KB · 42 行 · 服务端/)).toBeTruthy()
     expect(screen.getByText('2026-08-21 INFO start')).toBeTruthy()
-    expect(screen.getByText('server/worker')).toBeTruthy()
+    expect(screen.getByText('worker')).toBeTruthy()
     expect(screen.getByText('w.out')).toBeTruthy()
     expect(screen.queryByText('证据摘要（2）')).toBeNull()
   })

@@ -24,25 +24,47 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/** One node of the evidence directory tree. */
+interface EvidenceDirNode {
+  /** Segment name (empty for the root). */
+  name: string
+  /** Full slash path of this directory ('' for the root). */
+  path: string
+  dirs: Map<string, EvidenceDirNode>
+  files: QzhEvidenceTreeFile[]
+}
+
+/** Build a nested directory tree from the flat evidence paths. */
+function buildEvidenceTree(files: readonly QzhEvidenceTreeFile[]): EvidenceDirNode {
+  const root: EvidenceDirNode = { name: '', path: '', dirs: new Map(), files: [] }
+  for (const file of files) {
+    const segments = file.path.split('/')
+    let node = root
+    let acc = ''
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const segment = segments[index] as string
+      acc = acc === '' ? segment : `${acc}/${segment}`
+      let child = node.dirs.get(acc)
+      if (child === undefined) {
+        child = { name: segment, path: acc, dirs: new Map(), files: [] }
+        node.dirs.set(acc, child)
+      }
+      node = child
+    }
+    node.files.push(file)
+  }
+  return root
+}
+
 /** Collapsible evidence-file listing for the QZH details dock. */
 export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDownloadArchive, onPreviewFile }: Props) {
   const [open, setOpen] = useState(false)
   const [downloadingCategory, setDownloadingCategory] = useState<QzhLogCategory | undefined>()
   const [downloadError, setDownloadError] = useState<string | undefined>()
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-  // Group files by directory (the path already carries the server/terminal
-  // prefix), so a large bundle stays browsable instead of one flat list.
-  const groups = useMemo(() => {
-    const map = new Map<string, QzhEvidenceTreeFile[]>()
-    for (const file of files) {
-      const slash = file.path.lastIndexOf('/')
-      const dir = slash > 0 ? file.path.slice(0, slash) : '(根目录)'
-      const list = map.get(dir) ?? []
-      list.push(file)
-      map.set(dir, list)
-    }
-    return [...map.entries()].map(([dir, list]) => ({ dir, files: list })).sort((a, b) => a.dir.localeCompare(b.dir))
-  }, [files])
+  // Nested directory tree (the path already carries the server/terminal
+  // prefix), so a large bundle stays browsable like a file explorer.
+  const tree = useMemo(() => buildEvidenceTree(files), [files])
   const toggleDir = (dir: string): void => {
     setCollapsed((current) => {
       const next = new Set(current)
@@ -86,42 +108,80 @@ export function QzhEvidenceFiles({ files, clusters, archives, summaryOnly, onDow
       </button>
       {open && (
         <div className={css.evidenceRows}>
-          {groups.map(group => (
-            <div key={group.dir} className={css.evidenceGroup}>
-              <button
-                type="button"
-                className={css.evidenceDir}
-                aria-expanded={!collapsed.has(group.dir)}
-                onClick={() => { toggleDir(group.dir) }}
-              >
-                <span className={css.evidenceDirIcon}>{collapsed.has(group.dir) ? '▸' : '▾'}</span>
-                <span className={css.evidenceDirName} title={group.dir}>{group.dir}</span>
-                <span className={css.evidenceDirCount}>{group.files.length}</span>
-              </button>
-              {!collapsed.has(group.dir) && group.files.map((file) => {
-                const base = group.dir === '(根目录)' ? file.path : file.path.slice(group.dir.length + 1)
-                return (
-                  <button
-                    type="button"
-                    key={`${file.category}/${file.path}`}
-                    className={css.evidenceRow}
-                    title={`点击查看 ${file.path}`}
-                    onClick={() => { void onPreviewFile(file.path) }}
-                  >
-                    <div className={css.evidenceMain}>
-                      <span className={css.evidencePath}>{base}</span>
-                      <span>{formatBytes(file.size)}{file.lineCount !== undefined ? ` · ${String(file.lineCount)} 行` : ''} · {categoryLabel(file.category)}{file.stream !== 'log' ? ` · ${file.stream}` : ''}</span>
-                      {file.sample !== undefined && file.sample !== '' && (
-                        <span className={css.evidenceSample} title={file.sample}>{file.sample}</span>
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+          <EvidenceDirBranch
+            node={tree}
+            depth={0}
+            collapsed={collapsed}
+            toggleDir={toggleDir}
+            onPreviewFile={onPreviewFile}
+            formatBytes={formatBytes}
+            categoryLabel={categoryLabel}
+          />
         </div>
       )}
     </section>
+  )
+}
+
+/** Recursive directory branch: sorted subdirectories then files. */
+function EvidenceDirBranch({ node, depth, collapsed, toggleDir, onPreviewFile, formatBytes, categoryLabel }: {
+  node: EvidenceDirNode
+  depth: number
+  collapsed: ReadonlySet<string>
+  toggleDir: (dir: string) => void
+  onPreviewFile: (path: string) => Promise<void>
+  formatBytes: (bytes: number) => string
+  categoryLabel: (category: QzhLogCategory) => string
+}) {
+  const dirs = [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))
+  const files = [...node.files].sort((a, b) => a.path.localeCompare(b.path))
+  const indent = { paddingLeft: `${14 + depth * 14}px` } as const
+  return (
+    <>
+      {dirs.map(dir => (
+        <div key={dir.path}>
+          <button
+            type="button"
+            className={css.evidenceDir}
+            style={indent}
+            aria-expanded={!collapsed.has(dir.path)}
+            onClick={() => { toggleDir(dir.path) }}
+          >
+            <span className={css.evidenceDirIcon}>{collapsed.has(dir.path) ? '▸' : '▾'}</span>
+            <span className={css.evidenceDirName} title={dir.path}>{dir.name}</span>
+            <span className={css.evidenceDirCount}>{dir.files.length + dir.dirs.size}</span>
+          </button>
+          {!collapsed.has(dir.path) && (
+            <EvidenceDirBranch
+              node={dir}
+              depth={depth + 1}
+              collapsed={collapsed}
+              toggleDir={toggleDir}
+              onPreviewFile={onPreviewFile}
+              formatBytes={formatBytes}
+              categoryLabel={categoryLabel}
+            />
+          )}
+        </div>
+      ))}
+      {files.map(file => (
+        <button
+          type="button"
+          key={`${file.category}/${file.path}`}
+          className={css.evidenceRow}
+          style={indent}
+          title={`点击查看 ${file.path}`}
+          onClick={() => { void onPreviewFile(file.path) }}
+        >
+          <div className={css.evidenceMain}>
+            <span className={css.evidencePath}>{file.path.slice(file.path.lastIndexOf('/') + 1)}</span>
+            <span>{formatBytes(file.size)}{file.lineCount !== undefined ? ` · ${String(file.lineCount)} 行` : ''} · {categoryLabel(file.category)}{file.stream !== 'log' ? ` · ${file.stream}` : ''}</span>
+            {file.sample !== undefined && file.sample !== '' && (
+              <span className={css.evidenceSample} title={file.sample}>{file.sample}</span>
+            )}
+          </div>
+        </button>
+      ))}
+    </>
   )
 }
