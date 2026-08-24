@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary,
-  QzhCodeReadResult, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult,
+  QzhCodeReadResult, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { QzhComposer } from './QzhComposer.tsx'
 import { QzhEvidenceDock } from './QzhEvidenceDock.tsx'
@@ -52,6 +52,8 @@ export function apply(ctx: ClientContext): void {
       remoteValue(ctx.remote.qzhLogAnalysis.readEvidenceRange(sessionId, id, path, undefined, undefined)),
     readCode: (id: QzhCaseView['id'], path: string, startLine: number, endLine: number): Promise<QzhCodeReadResult> =>
       remoteValue(ctx.remote.qzhLogAnalysis.readCode(sessionId, id, 'server', path, startLine, endLine)),
+    getTimeline: (id: QzhCaseView['id'], maxEvents: number): Promise<QzhTimelineResult> =>
+      remoteValue(ctx.remote.qzhLogAnalysis.getTimeline(sessionId, id, maxEvents)),
     downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory): Promise<QzhArchiveDownload | undefined> => remoteValue(ctx.remote.qzhLogAnalysis.downloadEvidenceArchive(sessionId, id, category)),
     startAnalysis: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.startAnalysis(sessionId, id)).then(result => result.case),
     generateReport: (id: QzhCaseView['id']): Promise<QzhCaseView> => remoteValue(ctx.remote.qzhLogAnalysis.generateReport(sessionId, id)),
@@ -100,6 +102,7 @@ export function apply(ctx: ClientContext): void {
       getEvidenceTree: actions(sessionId).getEvidenceTree,
       readEvidenceRange: actions(sessionId).readEvidenceRange,
       readCode: actions(sessionId).readCode,
+      getTimeline: actions(sessionId).getTimeline,
       downloadEvidenceArchive: actions(sessionId).downloadEvidenceArchive,
       setFeedback: actions(sessionId).setFeedback,
       renameSession: actions(sessionId).renameSession,

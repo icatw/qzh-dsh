@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { decodeZipLogMember, listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { clusterLogErrors, parseLogText } from '../log-parser.ts'
 import { buildQzhEvidence } from './evidence.ts'
@@ -20,6 +20,7 @@ interface Injected {
   readonly getEvidenceTree: (id: QzhCaseView['id']) => Promise<QzhLogListResult>
   readonly readEvidenceRange: (id: QzhCaseView['id'], path: string) => Promise<QzhLogReadResult>
   readonly readCode: (id: QzhCaseView['id'], path: string, startLine: number, endLine: number) => Promise<QzhCodeReadResult>
+  readonly getTimeline: (id: QzhCaseView['id'], maxEvents: number) => Promise<QzhTimelineResult>
   readonly downloadEvidenceArchive: (id: QzhCaseView['id'], category: QzhLogCategory) => Promise<QzhArchiveDownload | undefined>
   readonly setFeedback: (id: QzhCaseView['id'], kind: QzhFeedbackKind, comment?: string) => Promise<QzhCaseView>
   readonly renameSession: (title: string) => Promise<void>
@@ -38,7 +39,7 @@ interface FilePreview {
 export function QzhEvidenceDock({
   sessionId, useSessions, useStore, actions, startAnalysis, generateReport, setEvidence, uploadEvidenceArchive,
   getCase, getActiveCase, getEvidenceTree,
-  readEvidenceRange, readCode, downloadEvidenceArchive, setFeedback, renameSession,
+  readEvidenceRange, readCode, getTimeline, downloadEvidenceArchive, setFeedback, renameSession,
 }: Props) {
   const sessionSummary = useSessions(state => state.byId[sessionId])
   const preset = sessionSummary?.agentPreset
@@ -169,6 +170,18 @@ export function QzhEvidenceDock({
       setSupplementError(`补充日志失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
+  const [evidenceView, setEvidenceView] = useState<'files' | 'timeline'>('files')
+  const [timeline, setTimeline] = useState<QzhTimelineResult | undefined>()
+  const [timelineError, setTimelineError] = useState<string | undefined>()
+  const loadTimeline = async (): Promise<void> => {
+    if (state.caseView === undefined || timeline !== undefined) return
+    setTimelineError(undefined)
+    try {
+      setTimeline(await getTimeline(state.caseView.id, 200))
+    } catch (error) {
+      setTimelineError(`加载时间线失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   if (preset !== 'qzh') return null
   if (state.caseView === undefined) {
     return (
@@ -214,16 +227,48 @@ export function QzhEvidenceDock({
         </div>
         {tab === 'evidence' ? (
           <>
-            {tree !== undefined && (
-              <QzhEvidenceFiles
-                files={tree.files}
-                clusters={tree.clusters}
-                archives={tree.archives ?? []}
-                summaryOnly={tree.summaryOnly === true}
-                caseId={state.caseView.id}
-                onDownloadArchive={downloadArchive}
-                onPreviewFile={previewFile}
-              />
+            <div className={css.evidenceViewTabs}>
+              <button type="button" className={evidenceView === 'files' ? css.evidenceViewTabActive : css.evidenceViewTab} onClick={() => { setEvidenceView('files') }}>文件</button>
+              <button type="button" className={evidenceView === 'timeline' ? css.evidenceViewTabActive : css.evidenceViewTab} onClick={() => { setEvidenceView('timeline'); void loadTimeline() }}>时间线</button>
+            </div>
+            {evidenceView === 'timeline' ? (
+              <section className={css.timelineSection} aria-label="跨侧时间线">
+                {timelineError !== undefined && <p className={css.errorText}>{timelineError}</p>}
+                {timeline !== undefined && timeline.events.length === 0 && <p className={css.muted}>证据中没有带时间戳的日志行。</p>}
+                {timeline !== undefined && timeline.events.length > 0 && (
+                  <div className={css.timelineList}>
+                    {timeline.events.map((event, index) => (
+                      <button
+                        type="button"
+                        key={`${event.timestamp}-${index}`}
+                        className={css.timelineRow}
+                        data-severity={event.severity}
+                        title={`点击查看 ${event.path}:${String(event.line)}`}
+                        onClick={() => { void previewFile(event.path) }}
+                      >
+                        <span className={css.timelineTime}>{formatClock(event.timestamp)}</span>
+                        <span className={css.timelinePath}>{event.path.slice(event.path.lastIndexOf('/') + 1)}</span>
+                        <span className={css.timelineText}>{event.text}</span>
+                      </button>
+                    ))}
+                    {timeline.truncated && <p className={css.muted}>时间线已截断（仅显示前 200 条）。</p>}
+                  </div>
+                )}
+              </section>
+            ) : (
+              <>
+                {tree !== undefined && (
+                  <QzhEvidenceFiles
+                    files={tree.files}
+                    clusters={tree.clusters}
+                    archives={tree.archives ?? []}
+                    summaryOnly={tree.summaryOnly === true}
+                    caseId={state.caseView.id}
+                    onDownloadArchive={downloadArchive}
+                    onPreviewFile={previewFile}
+                  />
+                )}
+              </>
             )}
             <div className={css.supplement}>
               {!supplementing ? (
@@ -267,6 +312,13 @@ export function QzhEvidenceDock({
       </div>
     )
     : <div className={css.dockCollapsed} role="status"><span>QZH 只读分析 · {state.caseView.state} · {state.entries.length} 个日志文件</span><button type="button" onClick={() => { actions.setPanelOpen(true) }}>查看证据</button></div>
+}
+
+/** Clock time (HH:MM:SS.mmm) for one timeline event. */
+function formatClock(epochMs: number): string {
+  const date = new Date(epochMs)
+  const pad = (value: number, width = 2): string => String(value).padStart(width, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
 }
 
 /** Encode bytes as base64 in chunks (btoa is bounded by call-stack size). */

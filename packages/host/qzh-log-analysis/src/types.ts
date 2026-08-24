@@ -183,6 +183,26 @@ export interface QzhLogListResult {
   readonly summaryOnly?: boolean
 }
 
+/** One timestamped log line in the cross-side timeline. */
+export interface QzhTimelineEvent {
+  /** Epoch milliseconds parsed from the line (no timezone assumed). */
+  readonly timestamp: number
+  /** Evidence-relative path with the `server/`/`terminal/` prefix. */
+  readonly path: string
+  /** 1-based line number in the source file. */
+  readonly line: number
+  readonly severity: 'error' | 'warn' | 'info' | 'unknown'
+  /** Trimmed, redacted line text (bounded). */
+  readonly text: string
+}
+
+/** Cross-side, time-ordered evidence timeline. */
+export interface QzhTimelineResult {
+  readonly events: readonly QzhTimelineEvent[]
+  /** True when the scan exceeded the byte budget or the event cap. */
+  readonly truncated: boolean
+}
+
 /** Bounded evidence search result. */
 export interface QzhLogSearchResult {
   readonly query: string

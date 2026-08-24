@@ -21,7 +21,7 @@ import type {
   QzhArchiveDownload, QzhArchiveInfo, QzhArchiveUpload, QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
   QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceSummary, QzhEvidenceTreeFile, QzhFeedbackKind,
   QzhLogCategory, QzhLogListResult, QzhLogMatch, QzhLogReadResult, QzhLogSearchResult, QzhRepository,
-  QzhAnalysisStartResult,
+  QzhAnalysisStartResult, QzhTimelineEvent, QzhTimelineResult,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -72,6 +72,28 @@ const EVIDENCE_MAX_READ_LINES = 500
 
 function caseId(value: string): QzhCaseId {
   return value as QzhCaseId
+}
+
+/** ISO / Python-logging timestamp prefix, no timezone assumed. */
+const TIMELINE_TIMESTAMP = /(?:^|\[)(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:[.,]\d{3})?)/
+
+/** Parse a log line's ISO/Python timestamp into epoch milliseconds. */
+function parseTimelineTimestamp(line: string): number | undefined {
+  const match = TIMELINE_TIMESTAMP.exec(line)
+  const date = match?.[1]
+  const time = match?.[2]
+  if (date === undefined || time === undefined) return undefined
+  const parsed = Date.parse(`${date}T${time.replace(',', '.')}`)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+/** Severity of a timestamped log line: the timestamp anchors the level word anywhere. */
+function timelineSeverity(line: string): QzhTimelineEvent['severity'] {
+  const upper = line.toUpperCase()
+  if (/\b(ERROR|CRITICAL|EXCEPTION|TRACEBACK)\b/.test(upper)) return 'error'
+  if (/\b(WARN|WARNING)\b/.test(upper)) return 'warn'
+  if (/\b(INFO|DEBUG)\b/.test(upper)) return 'info'
+  return 'unknown'
 }
 
 function now(): number {
@@ -1046,6 +1068,52 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       throw new Error(`QZH evidence range exceeds ${String(this.maxLogReadBytes)} bytes; request a narrower line range`)
     }
     return { path, startLine: first, endLine: last, totalLines: lines.length, text: body }
+  }
+
+  /** Cross-side, time-ordered evidence timeline.
+   * @param sessionId - owning DSH session.
+   * @param id - case identifier.
+   * @param maxEvents - caller cap on returned events (also capped by config).
+   * @returns timestamped events ordered by time, or truncated near the cap.
+   */
+  @Remote('getTimeline')
+  async getTimeline(sessionId: SessionId, id: QzhCaseId, maxEvents: number): Promise<QzhTimelineResult> {
+    this.requireCase(sessionId, id)
+    const blob = this.blobFacet()
+    const prefix = this.evidencePrefix(id)
+    const objects = await blob.list(prefix)
+    const cap = Math.min(Math.max(1, maxEvents), this.maxLogSearchResults)
+    const events: QzhTimelineEvent[] = []
+    let scanned = 0
+    let truncated = false
+    for (const object of objects) {
+      if (truncated) break
+      const rest = object.key.slice(prefix.length)
+      const slash = rest.indexOf('/')
+      if (slash <= 0) continue
+      const category = rest.slice(0, slash)
+      if (category !== 'server' && category !== 'terminal') continue
+      const rel = rest.slice(slash + 1)
+      if (scanned + object.size > this.maxLogSearchBytes) { truncated = true; break }
+      scanned += object.size
+      const text = Buffer.from(await blob.get(object.key)).toString('utf8')
+      const lines = text.split('\n')
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index] as string
+        const timestamp = parseTimelineTimestamp(line)
+        if (timestamp === undefined) continue
+        events.push({
+          timestamp,
+          path: `${category}/${rel}`,
+          line: index + 1,
+          severity: timelineSeverity(line),
+          text: redactSensitiveText(line.trim()).slice(0, EVIDENCE_MAX_SEARCH_EXCERPT_BYTES),
+        })
+      }
+    }
+    events.sort((a, b) => a.timestamp - b.timestamp)
+    if (events.length > cap) { truncated = true; events.length = cap }
+    return { events, truncated }
   }
 
   /** Resolve the latest case in a session for model-facing tools. */

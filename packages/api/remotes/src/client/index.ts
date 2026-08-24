@@ -18,7 +18,8 @@ export type {} from '@deepseek-ai/dsh-host-qzh-log-analysis/remote'
 export type {
   QzhArchiveDownload, QzhArchiveInfo, QzhArchiveUpload, QzhCaseId, QzhCaseView, QzhCodeMatch, QzhCodeReadResult,
   QzhCodeSearchResult, QzhCreateCaseRequest, QzhEvidenceCluster, QzhEvidenceConsent, QzhEvidenceFile, QzhEvidenceSummary,
-  QzhEvidenceTreeFile, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogMatch, QzhLogReadResult, QzhLogSearchResult, QzhRepository, QzhAnalysisStartResult,
+  QzhEvidenceTreeFile, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogMatch, QzhLogReadResult,
+  QzhLogSearchResult, QzhRepository, QzhAnalysisStartResult, QzhTimelineEvent, QzhTimelineResult,
 } from '@deepseek-ai/dsh-host-qzh-log-analysis/types'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 // The forwarded-event allowlist's selection seat: without it in the consumer's

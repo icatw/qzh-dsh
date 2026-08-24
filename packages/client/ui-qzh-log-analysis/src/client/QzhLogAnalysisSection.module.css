@@ -141,3 +141,20 @@ button.evidenceRow .evidencePath { color: var(--dsw-alias-state-business-primary
 .evidenceDirIcon { flex: none; width: 10px; color: var(--dsw-alias-label-tertiary); }
 .evidenceDirName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evidenceDirCount { flex: none; color: var(--dsw-alias-label-tertiary); }
+
+/* Evidence view sub-tabs: file tree vs cross-side timeline. */
+.evidenceViewTabs { display: flex; gap: 6px; padding: 0 2px; }
+.evidenceViewTab, .evidenceViewTabActive { flex: 1; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 6px 0; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 600; cursor: pointer; text-align: center; }
+.evidenceViewTab:hover { color: var(--dsw-alias-label-primary); }
+.evidenceViewTabActive { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-interactive-bg-hover); }
+/* Cross-side timeline rows: clock, file basename, and the line text. */
+.timelineSection { min-width: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }
+.timelineList { display: grid; min-width: 0; }
+.timelineRow { display: grid; grid-template-columns: auto minmax(64px, auto) 1fr; gap: 8px; align-items: baseline; width: 100%; border: 0; border-top: 1px solid var(--dsw-alias-border-l1); background: none; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; line-height: 1.5; padding: 6px 12px; text-align: left; cursor: pointer; }
+.timelineRow:first-child { border-top: 0; }
+.timelineRow:hover { background: var(--dsw-alias-bg-layer-2); }
+.timelineRow[data-severity='error'] .timelineText { color: var(--dsw-alias-state-error-primary); }
+.timelineRow[data-severity='warn'] .timelineText { color: var(--dsw-alias-state-warn-label); }
+.timelineTime { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.timelinePath { flex: none; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timelineText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
