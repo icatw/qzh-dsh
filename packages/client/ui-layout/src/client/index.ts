@@ -160,4 +160,40 @@ export function apply(ctx: ClientContext): void {
       presenter.dispose()
     }
   }, 'ui-layout: theme presenter')
+
+  // Session URL sync: `?session=<id>` deep-links to one conversation, and
+  // every selection change rewrites the query (no reload), so an intranet
+  // user can share the current session by copying the address.
+  ctx.effect(() => {
+    const sessions = ctx.get('sessions') as {
+      list: { getSnapshot(): { current?: string; phase?: string }; subscribe(listener: () => void): () => void }
+      open(id: string): void
+    } | undefined
+    if (sessions === undefined) return () => {}
+    const target = new URLSearchParams(window.location.search).get('session')
+    let openedTarget = false
+    const sync = (): void => {
+      const snapshot = sessions.list.getSnapshot()
+      // Open a shared deep link once the list baseline is ready and the id
+      // is present; the runtime ignores an unknown id.
+      if (!openedTarget && target !== null && target.length > 0 && snapshot.phase === 'ready') {
+        openedTarget = true
+        if (snapshot.current !== target) {
+          // An unknown/stale id is ignored: the shared link falls back to the
+          // normal startup selection instead of breaking the app.
+          try { sessions.open(target) } catch { /* unknown id */ }
+        }
+        return
+      }
+      // Always mirror the current selection into the query (no reload), so
+      // copying the address shares the session in view.
+      const url = new URL(window.location.href)
+      if (snapshot.current === undefined) url.searchParams.delete('session')
+      else url.searchParams.set('session', snapshot.current)
+      window.history.replaceState(null, '', url.toString())
+    }
+    sync()
+    const unsubscribe = sessions.list.subscribe(sync)
+    return () => { unsubscribe() }
+  }, 'ui-layout: session URL sync')
 }
