@@ -49,8 +49,8 @@ export interface QzhEvidenceCluster {
 /** Browser-approved evidence summary. Raw logs are not implicitly accepted. */
 export interface QzhEvidenceSummary {
   readonly consent: QzhEvidenceConsent
+  /** The file manifest the browser agreed to send (paths/sizes/layout samples). */
   readonly files: readonly QzhEvidenceFile[]
-  readonly clusters: readonly QzhEvidenceCluster[]
   readonly excerpt?: string
 }
 

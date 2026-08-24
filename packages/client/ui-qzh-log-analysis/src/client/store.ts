@@ -1,12 +1,10 @@
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QzhCaseView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
-import type { LogErrorCluster } from '../log-parser.ts'
 
 /** JSON-safe state shared by the QZH details panel and the session header action. */
 export interface QzhSessionState {
   entries: ImportedLogEntry[]
-  clusters: LogErrorCluster[]
   status: string
   consent: boolean
   customerLabel: string
@@ -17,7 +15,7 @@ export interface QzhSessionState {
 }
 
 type QzhSessionActions = {
-  setImported: (draft: QzhSessionState, entries: readonly ImportedLogEntry[], clusters: readonly LogErrorCluster[]) => void
+  setImported: (draft: QzhSessionState, entries: readonly ImportedLogEntry[]) => void
   setStatus: (draft: QzhSessionState, status: string) => void
   setConsent: (draft: QzhSessionState, consent: boolean) => void
   setCustomerLabel: (draft: QzhSessionState, value: string) => void
@@ -31,14 +29,13 @@ type QzhSessionActions = {
 export function createQzhSessionStore(): EngineStoreHandle<QzhSessionState, QzhSessionActions> {
   return defineStore({
     init: (): QzhSessionState => ({
-      entries: [], clusters: [], status: '导入日志开始分析。文件只在浏览器本地读取。', consent: false,
+      entries: [], status: '导入日志开始分析。文件只在浏览器本地读取。', consent: false,
       customerLabel: '', productVersion: '', failureDescription: '', panelOpen: true,
     }),
     persist: 'dsh.qzh.log-analysis',
     actions: {
-      setImported: (draft, entries, clusters) => {
+      setImported: (draft, entries) => {
         draft.entries = [...entries]
-        draft.clusters = [...clusters]
         draft.panelOpen = true
         // A new local import starts a new evidence submission. Do not keep a
         // stale in-memory Host case ID across imports or Host restarts.

@@ -5,8 +5,7 @@ import type {
   QzhArchiveUpload, QzhCaseView, QzhCreateCaseRequest, QzhEvidenceSummary, QzhFeedbackKind,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImportedLogEntry } from '../log-import.ts'
-import { decodeZipLogMember, isEncryptedZip, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
-import { clusterLogErrors, parseLogText } from '../log-parser.ts'
+import { isEncryptedZip, listZipLogEntries, logSample, normalizeImportPath, MAX_PREVIEW_BYTES } from '../log-import.ts'
 import { scanQzhLogLayout, type QzhLogCategory } from '../log-layout.ts'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatus } from './QzhAnalysisStatus.tsx'
@@ -87,10 +86,9 @@ export function QzhLogAnalysisSection({
 
   const onFiles = async (category: QzhLogCategory, files: FileList | null): Promise<void> => {
     if (files === null || files.length === 0) return
-    actions.setStatus('正在本地解析日志摘要…')
+    actions.setStatus('正在读取日志文件清单…')
     try {
       const entries: ImportedLogEntry[] = []
-      const events = []
       // Directory files are re-packed into one zip so a fully extracted log
       // bundle still lands as the durable full archive (summary-only would
       // otherwise hide complete logs from qzh_search_logs/qzh_list_logs).
@@ -105,7 +103,6 @@ export function QzhLogAnalysisSection({
           archiveRef.current.set(category, { filename: file.name, category, contentBase64: bytesToBase64(bytes) })
           const archiveEntries = listZipLogEntries(bytes, category)
           entries.push(...archiveEntries)
-          for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
           continue
         }
         const bytes = new Uint8Array(await file.arrayBuffer())
@@ -113,7 +110,6 @@ export function QzhLogAnalysisSection({
         const entry = fileEntry(file, preview, category)
         if (entry === undefined) continue
         entries.push(entry)
-        events.push(...parseLogText(entry, preview, category))
         directoryFiles.push({
           path: normalizeImportPath((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name),
           bytes,
@@ -127,17 +123,16 @@ export function QzhLogAnalysisSection({
           filename: `${category}-logs.zip`, category, contentBase64: bytesToBase64(archiveBytes),
         })
       }
-      const clusters = clusterLogErrors(events)
-      actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)), clusters)
+      actions.setImported(entries.sort((left, right) => left.path.localeCompare(right.path)))
       actions.setStatus(entries.length === 0
         ? '没有识别到日志文件，请选择 .log/.out，或包含时间戳/日志级别的 .txt 文件。'
-        : `已读取 ${String(entries.length)} 个日志文件，发现 ${String(clusters.length)} 类异常；请检查摘要后确认。`)
+        : `已读取 ${String(entries.length)} 个日志文件；确认后发送给内网分析，Agent 将自行扫描聚类。`)
     } catch (error) {
       actions.setStatus(`导入失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
-  const evidence = state.entries.length === 0 ? undefined : buildQzhEvidence(state.entries, state.clusters)
+  const evidence = state.entries.length === 0 ? undefined : buildQzhEvidence(state.entries)
 
   const submitAndStart = async (): Promise<void> => {
     if (evidence === undefined || !state.consent || state.caseView !== undefined || analysisRunning) return
@@ -215,7 +210,7 @@ export function QzhLogAnalysisSection({
   return (
     <section className={css.surface} aria-label="QZH 日志分析入口">
       <QzhImportHero
-        entries={state.entries} clusters={state.clusters}
+        entries={state.entries}
         onFiles={(category, files) => { void onFiles(category, files) }}
         status={state.status}
       />

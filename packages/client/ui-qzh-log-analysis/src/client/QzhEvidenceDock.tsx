@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QzhArchiveDownload, QzhArchiveUpload, QzhCaseView, QzhCodeReadResult, QzhEvidenceSummary, QzhFeedbackKind, QzhLogCategory, QzhLogListResult, QzhLogReadResult, QzhTimelineResult } from '@deepseek-ai/dsh-api-remotes/client'
-import { decodeZipLogMember, listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
-import { clusterLogErrors, parseLogText } from '../log-parser.ts'
+import { listZipLogEntries, type ImportedLogEntry } from '../log-import.ts'
 import { buildQzhEvidence } from './evidence.ts'
 import { QzhAnalysisStatusHead, QzhAnalysisStatusReport } from './QzhAnalysisStatus.tsx'
 import { QzhEvidenceFiles } from './QzhEvidenceFiles.tsx'
@@ -137,7 +136,6 @@ export function QzhEvidenceDock({
     const caseRef = state.caseView
     try {
       const entries: ImportedLogEntry[] = []
-      const events = []
       const uploads: QzhArchiveUpload[] = []
       for (const file of [...files].slice(0, 10)) {
         if (!file.name.toLowerCase().endsWith('.zip')) {
@@ -148,17 +146,14 @@ export function QzhEvidenceDock({
         uploads.push({ filename: file.name, category, contentBase64: bytesToBase64(bytes) })
         const archiveEntries = listZipLogEntries(bytes, category)
         entries.push(...archiveEntries)
-        for (const entry of archiveEntries) events.push(...parseLogText(entry, decodeZipLogMember(bytes, entry.path), category))
       }
       if (entries.length === 0) {
         setSupplementError('压缩包里没有识别到日志文件')
         return
       }
       const mergedEntries = mergeEntries(state.entries, entries)
-      const newClusters = clusterLogErrors(events)
-      const clusters = mergeClusters(state.clusters, newClusters)
-      actions.setImported(mergedEntries, clusters)
-      const mergedEvidence = buildQzhEvidence(mergedEntries, clusters)
+      actions.setImported(mergedEntries)
+      const mergedEvidence = buildQzhEvidence(mergedEntries)
       const saved = await setEvidence(caseRef.id, mergedEvidence)
       actions.setCaseView(saved)
       for (const upload of uploads) {
@@ -198,7 +193,7 @@ export function QzhEvidenceDock({
       </div>
     )
   }
-  const evidence = state.entries.length === 0 ? undefined : buildQzhEvidence(state.entries, state.clusters)
+  const evidence = state.entries.length === 0 ? undefined : buildQzhEvidence(state.entries)
   const downloadArchive = async (category: QzhLogCategory): Promise<void> => {
     if (state.caseView === undefined) return
     const archive = await downloadEvidenceArchive(state.caseView.id, category)
@@ -335,10 +330,4 @@ function bytesToBase64(bytes: Uint8Array): string {
 function mergeEntries(base: readonly ImportedLogEntry[], added: readonly ImportedLogEntry[]): ImportedLogEntry[] {
   const seen = new Set(base.map(entry => entry.path))
   return [...base, ...added.filter(entry => !seen.has(entry.path))]
-}
-
-/** Merge supplemented clusters into the existing ones, deduped by key. */
-function mergeClusters(base: readonly import('../log-parser.ts').LogErrorCluster[], added: readonly import('../log-parser.ts').LogErrorCluster[]): import('../log-parser.ts').LogErrorCluster[] {
-  const seen = new Set(base.map(cluster => cluster.key))
-  return [...base, ...added.filter(cluster => !seen.has(cluster.key))]
 }

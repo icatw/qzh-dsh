@@ -1,22 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
-import { clusterLogErrors, parseLogText } from '../src/log-parser.ts'
 import { decodeZipLogMember, isEncryptedZip, listZipLogEntries, logSample } from '../src/log-import.ts'
 import { qzhComponentLabel, scanQzhLogLayout } from '../src/log-layout.ts'
 
 describe('QZH log parser', () => {
-  it('recognizes the server and endpoint layout and clusters repeated errors', () => {
-    const [file] = scanQzhLogLayout(['data/logs/qzh_web_agent_error.log'])
-    expect(file).toMatchObject({ component: 'web-agent', stream: 'error' })
-    const events = parseLogText(file!, '[2026-08-21 10:00:00.123] ERROR request 123 failed\n[2026-08-21 10:01:00.123] ERROR request 456 failed', 'server')
-    expect(events).toHaveLength(2)
-    expect(events[0]?.timestamp).toBeDefined()
-    expect(events[0]?.category).toBe('server')
-    const clusters = clusterLogErrors(events)
-    expect(clusters).toHaveLength(1)
-    expect(clusters[0]).toMatchObject({ severity: 'error', count: 2, category: 'server' })
-  })
-
   it('discovers log members without requiring a fixed archive directory', () => {
     const bytes = zipSync({
       'runtime/server/qzh_agent.log': strToU8('2026-08-21 10:00:00 ERROR flush failed'),
@@ -38,7 +25,6 @@ describe('QZH log parser', () => {
     const entries = listZipLogEntries(bytes, 'server')
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ path: 'services/web/qzh_web_agent.log', source: 'archive', component: 'web-agent', category: 'server' })
-    expect(parseLogText(entries[0]!, decodeZipLogMember(bytes, entries[0]!.path), 'server')).toHaveLength(1)
   })
 
   it('infers a component label for generic logs instead of displaying unknown', () => {
@@ -106,37 +92,6 @@ describe('QZH log parser', () => {
     expect(entry?.sample).not.toContain('WARN slow tail')
   })
 
-  it('splits clusters by field side so the same error stays separate per category', () => {
-    const [file] = scanQzhLogLayout(['logs/qzh_web_agent.log'])
-    const serverEvents = parseLogText(file!, '2026-08-21 10:00:00 ERROR request failed', 'server')
-    const terminalEvents = parseLogText(file!, '2026-08-21 10:00:00 ERROR request failed', 'terminal')
-    const clusters = clusterLogErrors([...serverEvents, ...terminalEvents])
-    expect(clusters).toHaveLength(2)
-    expect(clusters.map(cluster => cluster.category).sort()).toEqual(['server', 'terminal'])
-  })
-
-  it('ignores column headers that mention a level word without a timestamp', () => {
-    const [file] = scanQzhLogLayout(['summary.txt'])
-    const header = 'service\tstatus\ttotal\tdebug\tinfo\twarn\terror\tfirst_time\tlast_time\trequest_id_hits'
-    const events = parseLogText(file!, `${header}\n2026-08-21 10:00:00 ERROR boom`, 'server')
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ severity: 'error', message: 'ERROR boom' })
-    expect(clusterLogErrors(events)).toMatchObject([{ severity: 'error', count: 1 }])
-  })
-
-  it('keeps untimestamped lines whose level word starts the line', () => {
-    const [file] = scanQzhLogLayout(['runtime/app-runtime.log'])
-    const events = parseLogText(file!, 'ERROR boom\nWARN slow\nINFO ready', 'terminal')
-    expect(events).toHaveLength(2)
-    expect(events.map(event => event.severity)).toEqual(['error', 'warn'])
-  })
-
-  it('recognizes a level word anywhere when a timestamp anchors the line', () => {
-    const [file] = scanQzhLogLayout(['runtime/app-runtime.log'])
-    const events = parseLogText(file!, '2026-08-21 10:00:00 request ERROR boom', 'server')
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ severity: 'error' })
-  })
 })
 
 describe('QZH zip encryption detection', () => {

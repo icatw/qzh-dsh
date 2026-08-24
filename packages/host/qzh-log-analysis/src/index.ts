@@ -153,18 +153,8 @@ function sanitizeEvidence(evidence: QzhEvidenceSummary): QzhEvidenceSummary {
       ...(sample === undefined || sample.length === 0 ? {} : { sample }),
     }
   })
-  const clusters = evidence.clusters.slice(0, 500).map(cluster => ({
-    key: redactSensitiveText(cluster.key).slice(0, 512),
-    component: cluster.component,
-    category: ensureCategory(cluster.category),
-    severity: cluster.severity,
-    count: Number.isSafeInteger(cluster.count) && cluster.count > 0 ? cluster.count : 1,
-    ...cluster.firstTimestamp === undefined ? {} : { firstTimestamp: cluster.firstTimestamp },
-    ...cluster.lastTimestamp === undefined ? {} : { lastTimestamp: cluster.lastTimestamp },
-    ...cluster.sample === undefined ? {} : { sample: redactSensitiveText(cluster.sample).slice(0, 1_000) },
-  }))
   const excerpt = evidence.excerpt === undefined ? undefined : redactSensitiveText(evidence.excerpt).slice(0, 64 * 1024)
-  return { consent: { approved: true, destination: EVIDENCE_DESTINATION }, files, clusters, ...(excerpt === undefined ? {} : { excerpt }) }
+  return { consent: { approved: true, destination: EVIDENCE_DESTINATION }, files, ...(excerpt === undefined ? {} : { excerpt }) }
 }
 
 function ensureRepository(value: QzhRepository): QzhRepository {
@@ -288,7 +278,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       })
       const currentCaseDispose = tools.register(defineTool({
         name: 'qzh_get_current_case',
-        description: '获取当前 QZH 会话最近提交的案例、日志文件清单、异常聚类和短样例。无需参数；不要猜测案例 ID。',
+        description: '获取当前 QZH 会话最近提交的案例、日志文件清单和短样例。无需参数；不要猜测案例 ID。',
         parameters: {},
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
         isConcurrencySafe: () => true,
@@ -320,7 +310,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       }))
       const listEvidenceDispose = tools.register(defineTool({
         name: 'qzh_list_evidence',
-        description: '列出当前 QZH 案例证据包内的完整日志文件清单（真实相对路径、组件标签、stream、大小、首行样例）和异常聚类。用于先摸清现场日志布局再定位根因；不要假设固定的日志目录结构，浏览器提供的组件标签可能只是初始推断。case_id 可省略，Host 会绑定当前会话案例。',
+        description: '列出当前 QZH 案例证据包内的完整日志文件清单（真实相对路径、组件标签、stream、大小、首行样例）。用于先摸清现场日志布局再定位根因；不要假设固定的日志目录结构，浏览器提供的组件标签可能只是初始推断。case_id 可省略，Host 会绑定当前会话案例。',
         parameters: {
           case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
         },
@@ -359,7 +349,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       }))
       const listLogsDispose = tools.register(defineTool({
         name: 'qzh_list_logs',
-        description: '列出当前案例证据包解压后的完整日志文件树（真实相对路径、大小、首行样例）和异常聚类，用于摸清现场目录结构后定向读取。仅在案例上传了完整日志包时可用；未上传时报告"summary-only"并用 qzh_list_evidence 的样例。case_id 可省略，Host 会绑定当前会话案例。',
+        description: '列出当前案例证据包解压后的完整日志文件树（真实相对路径、大小、首行样例），用于摸清现场目录结构后定向读取。仅在案例上传了完整日志包时可用；未上传时报告"summary-only"并用 qzh_list_evidence 的样例。case_id 可省略，Host 会绑定当前会话案例。',
         parameters: {
           case_id: { type: 'string', description: '可选；省略时使用当前会话已提交案例。' },
         },
@@ -563,7 +553,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
           totalFiles: record.evidence?.files.length ?? 0,
           totalBytes: record.evidence?.files.reduce((sum, file) => sum + file.size, 0) ?? 0,
           truncated: false,
-          clusters: record.evidence?.clusters ?? [],
+          clusters: [],
           summaryOnly: true,
         }
       }
@@ -957,7 +947,7 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       totalFiles: files.length,
       totalBytes,
       truncated,
-      clusters: record.evidence?.clusters ?? [],
+      clusters: [],
     }
   }
 
@@ -1135,22 +1125,14 @@ export class QzhLogAnalysisService extends TypertRemoteService {
 
   /** Structure-first evidence projection for the model-facing list tool.
    * @param record - the tool-resolved case record.
-   * @returns detached files and clusters with per-file layout samples.
+   * @returns detached files with per-file layout samples.
    */
   private evidenceForTool(record: CaseRecord): Record<string, unknown> {
     const evidence = record.evidence
-    if (evidence === undefined) return { case_id: record.id, files: [], clusters: [] }
+    if (evidence === undefined) return { case_id: record.id, files: [] }
     return {
       case_id: record.id,
       files: evidence.files.map(file => ({ ...file })),
-      clusters: evidence.clusters.map(cluster => ({
-        key: cluster.key,
-        component: cluster.component,
-        category: cluster.category,
-        severity: cluster.severity,
-        count: cluster.count,
-        ...(cluster.sample === undefined ? {} : { sample: cluster.sample }),
-      })),
     }
   }
 
@@ -1232,11 +1214,10 @@ export class QzhLogAnalysisService extends TypertRemoteService {
       `QZH 版本：${record.productVersion ?? '未知'}`,
       `故障描述：${record.failureDescription ?? '未提供'}`,
       `日志文件：${JSON.stringify(evidence.files)}`,
-      `异常聚类：${JSON.stringify(evidence.clusters)}`,
       `日志短样例：${evidence.excerpt ?? '未提供'}`,
-      '先调用 qzh_list_evidence 查看完整文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
-      '服务端（server/）与终端（terminal/）日志可能来自同一故障：先按时间线对齐两端事件（qzh_list_logs 的时间线视图与真实时间戳），再判断因果方向（服务端请求链路 → 终端下发状态），避免只看一侧就下结论。',
-      '请先梳理证据、说明排查思路和初步发现；本轮不需要输出最终报告。用户会继续追问细节或补充证据，最后再由用户请求生成正式报告。',
+      '先调用 qzh_list_evidence 查看文件清单与每个文件的首行样例，以现场实际目录结构为准，不要假设固定布局；浏览器提供的 component 只是初始标签，可能与压缩包结构不一致。再调用 qzh_get_current_case 校验当前案例上下文；qzh_search_code 和 qzh_read_code 的 case_id 可以省略，Host 会自动绑定当前会话案例。不要猜测或尝试其他案例 ID。',
+      '请先调用 qzh_list_logs 查看完整日志树、qzh_search_logs 按错误关键词扫描并自行聚类（ERROR/WARN/超时/认证失败等），再说明排查思路和初步发现；本轮不需要输出最终报告。用户会继续追问细节或补充证据，最后再由用户请求生成正式报告。',
+      '服务端（server/）与终端（terminal/）日志可能来自同一故障：先按时间线对齐两端事件（真实时间戳），再判断因果方向（服务端请求链路 → 终端下发状态），避免只看一侧就下结论。',
     ].join('\n')
   }
 

@@ -60,21 +60,17 @@ describe('QzhLogAnalysisService', () => {
     const created = await service.createCase(sessionId, { productVersion: '3.9.17' })
     const otherSession = 'session-other' as SessionId
     await expect(service.setEvidence(otherSession, created.id, {
-      consent: { approved: true, destination: 'internal-qzh-analysis' }, files: [], clusters: [],
+      consent: { approved: true, destination: 'internal-qzh-analysis' }, files: [],
     })).rejects.toThrow('does not belong to session')
 
     await expect(service.setEvidence(sessionId, created.id, {
       consent: { approved: false, destination: 'internal-qzh-analysis' },
-      files: [], clusters: [],
+      files: [],
     })).rejects.toThrow('consent')
 
     const saved = await service.setEvidence(sessionId, created.id, {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
       files: [{ path: '/data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', category: 'server', size: 12 }],
-      clusters: [{
-        key: 'authorization=secret-value', component: 'web-agent', category: 'server', severity: 'error', count: 1,
-        sample: 'Authorization: Bearer secret-value',
-      }],
       excerpt: 'cookie=session-secret',
     })
 
@@ -83,8 +79,6 @@ describe('QzhLogAnalysisService', () => {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
       files: [{ path: 'data/logs/qzh_web_agent.log' }],
     })
-    expect(saved.evidence?.clusters[0]?.key).toContain('[REDACTED]')
-    expect(saved.evidence?.clusters[0]?.sample).toContain('[REDACTED]')
     expect(saved.evidence?.excerpt).toContain('[REDACTED]')
   })
 
@@ -97,7 +91,6 @@ describe('QzhLogAnalysisService', () => {
     const saved = await service.setEvidence(sessionId, created.id, {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
       files: [{ path: 'services/web/runtime.log', component: 'unknown', stream: 'log', category: 'server', size: 8 }],
-      clusters: [],
     })
     expect(saved.evidence?.files[0]?.path).toBe('services/web/runtime.log')
     const toolApi = service as unknown as {
@@ -126,7 +119,6 @@ describe('QzhLogAnalysisService', () => {
         size: 64,
         sample: '2026-08-21 10:00:00 ERROR Authorization: Bearer secret-value',
       }],
-      clusters: [{ key: 'boom', component: 'unknown', category: 'terminal', severity: 'error', count: 1, sample: 'ERROR boom' }],
     })
     const sample = saved.evidence?.files[0]?.sample
     expect(sample).toContain('[REDACTED]')
@@ -167,7 +159,6 @@ describe('QzhLogAnalysisService', () => {
     await service1.setEvidence(sessionId, created.id, {
       consent: { approved: true, destination: 'internal-qzh-analysis' },
       files: [{ path: 'data/logs/qzh_web_agent.log', component: 'web-agent', stream: 'log', category: 'server', size: 12 }],
-      clusters: [],
     })
     await service1.setFeedback(sessionId, created.id, 'like', '有帮助')
     // Second instance on the same root restores the stored case.
@@ -378,7 +369,6 @@ it('serves the evidence tree via getEvidenceTree, degrading to the summary befor
   await service.setEvidence(sessionId, caseId, {
     consent: { approved: true, destination: 'internal-qzh-analysis' },
     files: [{ path: 'server/logs/a.log', component: 'web-agent', stream: 'log', category: 'server', size: 5, sample: 'INFO x' }],
-    clusters: [],
   })
   const before = await service.getEvidenceTree(sessionId, caseId)
   expect(before.totalFiles).toBe(1)

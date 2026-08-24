@@ -1,6 +1,5 @@
 import { useState, type DragEvent } from 'react'
 import { MAX_PREVIEW_BYTES, type ImportedLogEntry } from '../log-import.ts'
-import type { LogErrorCluster } from '../log-parser.ts'
 import type { QzhLogCategory } from '../log-layout.ts'
 import css from './QzhLogAnalysisSection.module.css'
 
@@ -16,7 +15,6 @@ function formatBytes(bytes: number): string {
 
 interface Props {
   readonly entries: readonly ImportedLogEntry[]
-  readonly clusters: readonly LogErrorCluster[]
   readonly onFiles: (category: QzhLogCategory, files: FileList | null) => void
   readonly status: string
 }
@@ -62,7 +60,7 @@ function UploadZone({ category, title, hint, count, onFiles }: UploadZoneProps) 
 }
 
 /** Compact first-stage entry point for a blank QZH session. */
-export function QzhImportHero({ entries, clusters, onFiles, status }: Props) {
+export function QzhImportHero({ entries, onFiles, status }: Props) {
   const imported = entries.length > 0
   const serverCount = entries.filter(entry => entry.category === 'server').length
   const terminalCount = entries.filter(entry => entry.category === 'terminal').length
@@ -124,7 +122,7 @@ export function QzhImportHero({ entries, clusters, onFiles, status }: Props) {
         )}
         <div className={css.heroMeta} aria-live="polite">
           <span>{imported ? `服务端 ${serverCount} 个 · 终端 ${terminalCount} 个` : '第 1 步 · 导入日志'}</span>
-          <span>{imported ? `${clusters.length} 类异常` : '支持 .log、.out、带日志特征的 .txt 和 ZIP'}</span>
+          <span>{imported ? `${String(entries.length)} 个文件待发送` : '支持 .log、.out、带日志特征的 .txt 和 ZIP'}</span>
         </div>
         <p className={css.status} aria-live="polite">{status}</p>
       </div>
